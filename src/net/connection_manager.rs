@@ -133,9 +133,9 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
     }
 
     /// Splits the `ConnectionManager` into two parts: the `ConnectionManagerSender` and the `ConnectionManager`.
-    pub fn split(self) -> (ConnectionManagerSender<TConnection>, Self) {
+    pub fn split(self) -> (ConnectionManagerTx<TConnection>, Self) {
         (
-            ConnectionManagerSender {
+            ConnectionManagerTx {
                 connections: self.connections.clone(),
                 user_event_receiver: self.user_event_receiver.clone(),
                 tx: self.tx.clone(),
@@ -286,7 +286,7 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
 /// Connection capabilities depends on what is an actual `Connection` type.
 /// Connection type also defines a type of sending and receiving events.
 #[derive(Debug)]
-pub struct ConnectionManagerSender<TConnection: Connection> {
+pub struct ConnectionManagerTx<TConnection: Connection> {
     connections: Arc<Mutex<HashMap<SockAddr, TConnection>>>,
     user_event_receiver: Receiver<TConnection::SendEvent>,
     tx: SocketEventSenderAndConfig<TConnection::ReceiveEvent>,
@@ -294,7 +294,7 @@ pub struct ConnectionManagerSender<TConnection: Connection> {
     user_event_sender: Sender<TConnection::SendEvent>,
 }
 
-impl<TConnection: Connection> ConnectionManagerSender<TConnection> {
+impl<TConnection: Connection> ConnectionManagerTx<TConnection> {
     /// Processes any outbound packets and events.
     pub fn manual_poll_outbound(&mut self, time: Instant) {
         let messenger = &mut self.tx;

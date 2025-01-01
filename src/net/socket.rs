@@ -15,7 +15,7 @@ use crate::{
     packet::Packet,
 };
 
-use super::{DatagramSocketReceiver, DatagramSocketSender};
+use super::{connection_manager::ConnectionManagerTx, DatagramSocketReceiver, DatagramSocketSender};
 
 fn create_socket(listen_addr: socket2::SockAddr) -> std::io::Result<socket2::Socket> {
     let socket = socket2::Socket::new(
@@ -251,6 +251,15 @@ impl Socket {
         })
     }
 
+    /// Splits the socket its a sender and receiver half
+    pub fn split(self) -> (SocketTx, SocketRx) {
+        let (tx, rx) = self.handler.split();
+        (
+            SocketTx { handler: tx },
+            SocketRx { handler: rx },
+        )
+    }
+
     /// Returns a handle to the packet sender which provides a thread-safe way to enqueue packets
     /// to be processed. This should be used when the socket is busy running its polling loop in a
     /// separate thread.
@@ -318,5 +327,108 @@ impl Socket {
         self.handler
             .socket_mut()
             .set_link_conditioner(link_conditioner);
+    }
+}
+
+/// A reliable UDP socket implementation with configurable reliability and ordering guarantees.
+#[derive(Debug)]
+pub struct SocketTx {
+    handler: ConnectionManagerTx<VirtualConnection>,
+}
+
+impl SocketTx {
+    /// Returns a handle to the packet sender which provides a thread-safe way to enqueue packets
+    /// to be processed. This should be used when the socket is busy running its polling loop in a
+    /// separate thread.
+    pub fn get_packet_sender(&self) -> Sender<Packet> {
+        self.handler.event_sender().clone()
+    }
+
+    /// Sends a single packet
+    pub fn send(&mut self, packet: Packet) -> Result<()> {
+        self.handler
+            .event_sender()
+            .send(packet)
+            .expect("Receiver must exists.");
+        Ok(())
+    }
+
+    /// Runs the polling loop with the default '1ms' sleep duration. This should run in a spawned thread
+    /// since calls to `self.manual_poll` are blocking.
+    pub fn start_polling(&mut self) {
+        self.start_polling_with_duration(Some(Duration::from_millis(1)))
+    }
+
+    /// Runs the polling loop with a specified sleep duration. This should run in a spawned thread
+    /// since calls to `self.manual_poll` are blocking.
+    pub fn start_polling_with_duration(&mut self, sleep_duration: Option<Duration>) {
+        // nothing should break out of this loop!
+        loop {
+            self.manual_poll(Instant::now());
+            match sleep_duration {
+                None => yield_now(),
+                Some(duration) => sleep(duration),
+            };
+        }
+    }
+
+    /// Processes any inbound/outbound packets and handle idle clients
+    pub fn manual_poll(&mut self, time: Instant) {
+        self.handler.manual_poll(time);
+    }
+}
+
+
+
+/// A reliable UDP socket implementation with configurable reliability and ordering guarantees.
+#[derive(Debug)]
+pub struct SocketRx {
+    handler: ConnectionManager<VirtualConnection>,
+}
+
+impl SocketRx {
+    /// Returns a handle to the event receiver which provides a thread-safe way to retrieve events
+    /// from the socket. This should be used when the socket is busy running its polling loop in
+    /// a separate thread.
+    pub fn get_event_receiver(&self) -> Receiver<SocketEvent> {
+        self.handler.event_receiver().clone()
+    }
+
+    /// Receives a single packet
+    pub fn recv(&mut self) -> Option<SocketEvent> {
+        match self.handler.event_receiver().try_recv() {
+            Ok(pkt) => Some(pkt),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => panic!["This can never happen"],
+        }
+    }
+
+    /// Runs the polling loop with the default '1ms' sleep duration. This should run in a spawned thread
+    /// since calls to `self.manual_poll` are blocking.
+    pub fn start_polling(&mut self) {
+        self.start_polling_with_duration(Some(Duration::from_millis(1)))
+    }
+
+    /// Runs the polling loop with a specified sleep duration. This should run in a spawned thread
+    /// since calls to `self.manual_poll` are blocking.
+    pub fn start_polling_with_duration(&mut self, sleep_duration: Option<Duration>) {
+        // nothing should break out of this loop!
+        loop {
+            self.manual_poll(Instant::now());
+            match sleep_duration {
+                None => yield_now(),
+                Some(duration) => sleep(duration),
+            };
+        }
+    }
+
+    /// Processes any inbound/outbound packets and handle idle clients
+    pub fn manual_poll(&mut self, time: Instant) {
+        self.handler.manual_poll(time);
+    }
+
+    /// Returns the local socket address
+    pub fn local_addr(&self) -> Result<SockAddr> {
+        Ok(self.handler.socket_rx().local_addr()?)
     }
 }
