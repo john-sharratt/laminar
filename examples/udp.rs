@@ -41,7 +41,7 @@ pub fn receive_data() {
         if let Some(result) = socket.recv() {
             match result {
                 SocketEvent::Packet(packet) => {
-                    let endpoint: SockAddr = packet.addr();
+                    let endpoint: SockAddr = packet.addr().clone();
                     let received_data: &[u8] = packet.payload();
 
                     // you can here deserialize your bytes into the data you have passed it when sending.

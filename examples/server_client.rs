@@ -31,7 +31,7 @@ fn server() -> Result<(), ErrorKind> {
 
                     sender
                         .send(Packet::reliable_unordered(
-                            packet.addr(),
+                            packet.addr().clone(),
                             "Copy that!".as_bytes().to_vec(),
                         ))
                         .expect("This should send");
@@ -70,7 +70,7 @@ fn client() -> Result<(), ErrorKind> {
             line.clone().into_bytes(),
         ))?;
 
-        socket.manual_poll(Instant::now());
+        socket.manual_poll(Instant::now()).unwrap();
 
         if line == "Bye!" {
             break;
@@ -78,7 +78,7 @@ fn client() -> Result<(), ErrorKind> {
 
         match socket.recv() {
             Some(SocketEvent::Packet(packet)) => {
-                if packet.addr() == server {
+                if packet.addr().clone() == server {
                     println!("Server sent: {}", String::from_utf8_lossy(packet.payload()));
                 } else {
                     println!("Unknown sender.");

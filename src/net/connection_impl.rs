@@ -15,7 +15,7 @@ impl ConnectionEventAddress for SocketEvent {
     /// Returns event address.
     fn address(&self) -> SockAddr {
         match self {
-            SocketEvent::Packet(packet) => packet.addr(),
+            SocketEvent::Packet(packet) => packet.addr().clone(),
             SocketEvent::Connect(addr) => addr.clone(),
             SocketEvent::Timeout(addr) => addr.clone(),
             SocketEvent::Disconnect(addr) => addr.clone(),
@@ -27,7 +27,7 @@ impl ConnectionEventAddress for SocketEvent {
 impl ConnectionEventAddress for Packet {
     /// Returns event address.
     fn address(&self) -> SockAddr {
-        self.addr()
+        self.addr().clone()
     }
 }
 
@@ -187,7 +187,7 @@ fn send_packets(
     match packets {
         Ok(packets) => {
             for outgoing in packets {
-                ctx.send_packet(address, &outgoing.contents());
+                ctx.send_packet(address, &outgoing.contents()).unwrap();
             }
         }
         Err(error) => error!("Error occured processing {}: {:?}", err_context, error),

@@ -1,12 +1,12 @@
 use std::{self, collections::HashMap, fmt::Debug, io::{IoSlice, Result}, mem::MaybeUninit, ops::{Deref, DerefMut}, sync::{Arc, Mutex}};
 use coarsetime::Instant;
 
-use crossbeam_channel::{self, unbounded, Receiver, Sender};
+use crossbeam_channel::{self, unbounded, Receiver, Sender, TryRecvError};
 use log::error;
 use socket2::SockAddr;
 
 use crate::{
-    config::Config, net::Connection, net::ConnectionEventAddress, net::ConnectionMessenger,
+    config::Config, net::{Connection, ConnectionEventAddress, ConnectionMessenger}, Packet,
 };
 
 // TODO: maybe we can make a breaking change and use this instead of `ConnectionEventAddress` trait?
@@ -83,16 +83,14 @@ impl<ReceiveEvent: Debug> ConnectionMessenger<ReceiveEvent>
         self.event_sender.send(event).expect("Receiver must exists");
     }
 
-    fn send_packet(&mut self, address: &SockAddr, payload: &[u8]) {
-        if let Err(err) = self.socket.send_packet(address, payload) {
-            error!("Error occured sending a packet (to {:?}): {}", address, err)
-        }
+    fn send_packet(&mut self, address: &SockAddr, payload: &[u8]) -> std::io::Result<()> {
+        self.socket.send_packet(address, payload)?;
+        Ok(())
     }
 
-    fn send_packet_vectored(&mut self, address: &SockAddr, bufs: &[IoSlice<'_>]) {
-        if let Err(err) = self.socket.send_packet_vectored(address, bufs) {
-            error!("Error occured sending a packet (to {:?}): {}", address, err)
-        }
+    fn send_packet_vectored(&mut self, address: &SockAddr, bufs: &[IoSlice<'_>]) -> std::io::Result<()> {
+        self.socket.send_packet_vectored(address, bufs)?;
+        Ok(())
     }
 }
 
@@ -105,6 +103,7 @@ pub struct ConnectionManager<TConnection: Connection> {
     receive_buffer: Vec<MaybeUninit<u8>>,
     event_receiver: Receiver<TConnection::ReceiveEvent>,
     max_unestablished_connections: u16,
+    user_event_sender: Sender<TConnection::SendEvent>,
     rx: Box<dyn DatagramSocketReceiver + Send + Sync>,
     tx: ConnectionManagerTx<TConnection>,
 }
@@ -123,6 +122,7 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
             receive_buffer: vec![MaybeUninit::uninit(); config.receive_buffer_max_size],
             connections: connections.clone(),
             rx,
+            user_event_sender,
             event_receiver: event_receiver.clone(),
             max_unestablished_connections,
             tx: ConnectionManagerTx {
@@ -130,7 +130,6 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
                 tx: SocketEventSenderAndConfig::new(config.clone(), tx, event_sender),
                 event_receiver,
                 user_event_receiver,
-                user_event_sender,
             },
         }
     }
@@ -199,8 +198,9 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
     }
 
     /// Processes any outbound packets and events.
-    pub fn manual_poll_outbound(&mut self, time: Instant) {
-        self.tx.manual_poll_outbound(time);
+    pub fn manual_poll_outbound(&mut self, time: Instant) -> std::io::Result<()> {
+        self.tx.manual_poll_outbound(time)?;
+        Ok(())
     }
 
     /// Processes connection specific logic for active connections.
@@ -225,7 +225,7 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
     /// Removes dropped connections from active connections list.
     pub fn manual_poll(&mut self, time: Instant) -> std::io::Result<()> {
         self.manual_poll_inbound(time)?;
-        self.manual_poll_outbound(time);
+        self.manual_poll_outbound(time)?;
         self.manual_poll_update(time);
         Ok(())
     }
@@ -234,7 +234,7 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
     /// to be processed. This should be used when the socket is busy running its polling loop in a
     /// separate thread.
     pub fn event_sender(&self) -> &Sender<TConnection::SendEvent> {
-        self.tx.event_sender()
+        &self.user_event_sender
     }
 
     /// Returns a handle to the event receiver which provides a thread-safe way to retrieve events
@@ -288,7 +288,6 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
 #[derive(Debug)]
 pub struct ConnectionManagerTx<TConnection: Connection> {
     connections: Arc<Mutex<HashMap<SockAddr, TConnection>>>,
-    user_event_sender: Sender<TConnection::SendEvent>,
     user_event_receiver: Receiver<TConnection::SendEvent>,
     tx: SocketEventSenderAndConfig<TConnection::ReceiveEvent>,
     event_receiver: Receiver<TConnection::ReceiveEvent>,
@@ -302,25 +301,39 @@ for ConnectionManagerTx<TConnection> {
             tx: self.tx.clone(),
             event_receiver: self.event_receiver.clone(),
             user_event_receiver: self.user_event_receiver.clone(),
-            user_event_sender: self.user_event_sender.clone(),
         }
     }
 }
 
 impl<TConnection: Connection> ConnectionManagerTx<TConnection> {
+    /// Sends a single packet to the socket.
+    pub fn send_packet(&mut self, packet: Packet) -> Result<()> {
+        self.tx.send_packet(&packet.addr(), packet.payload())?;
+        Ok(())
+    }
+
     /// Processes any outbound packets and events.
-    pub fn manual_poll_outbound(&mut self, time: Instant) {
+    pub fn manual_poll_outbound(&mut self, time: Instant) -> std::io::Result<()> {
         let messenger = &mut self.tx;
 
         // now grab all the waiting packets and send them
-        while let Ok(event) = self.user_event_receiver.try_recv() {
-            // get or create connection
-            let mut connections = self.connections.lock().unwrap();
-            let conn = connections.entry(event.address()).or_insert_with(|| {
-                TConnection::create_connection(messenger, event.address(), time)
-            });
-            conn.process_event(messenger, event, time);
+        loop {
+            match self.user_event_receiver.try_recv() {
+                Ok(event) => {
+                    // get or create connection
+                    let mut connections = self.connections.lock().unwrap();
+                    let conn = connections.entry(event.address()).or_insert_with(|| {
+                        TConnection::create_connection(messenger, event.address(), time)
+                    });
+                    conn.process_event(messenger, event, time);
+                },
+                Err(TryRecvError::Empty) => break,
+                Err(TryRecvError::Disconnected) => {
+                    return Err(std::io::Error::new(std::io::ErrorKind::Other, "User event receiver disconnected"));
+                }
+            }
         }
+        Ok(())
     }
 
     /// Processes connection specific logic for active connections.
@@ -343,16 +356,10 @@ impl<TConnection: Connection> ConnectionManagerTx<TConnection> {
     /// Processes any inbound/outbound packets and events.
     /// Processes connection specific logic for active connections.
     /// Removes dropped connections from active connections list.
-    pub fn manual_poll(&mut self, time: Instant) {
-        self.manual_poll_outbound(time);
+    pub fn manual_poll(&mut self, time: Instant) -> std::io::Result<()> {
+        self.manual_poll_outbound(time)?;
         self.manual_poll_update(time);
-    }
-
-    /// Returns a handle to the event sender which provides a thread-safe way to enqueue user events
-    /// to be processed. This should be used when the socket is busy running its polling loop in a
-    /// separate thread.
-    pub fn event_sender(&self) -> &Sender<TConnection::SendEvent> {
-        &self.user_event_sender
+        Ok(())
     }
 
     /// Returns a handle to the event receiver which provides a thread-safe way to retrieve events

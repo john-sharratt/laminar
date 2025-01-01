@@ -43,8 +43,8 @@ fn blocking_sender_and_receiver() {
         .send(Packet::unreliable(server_addr, b"Hello world!".to_vec()))
         .unwrap();
 
-    client.manual_poll(time);
-    server.manual_poll(time);
+    client.manual_poll(time).unwrap();
+    server.manual_poll(time).unwrap();
 
     if let SocketEvent::Packet(packet) = server.recv().unwrap() {
         assert_eq![b"Hello world!", packet.payload()];

@@ -13,10 +13,10 @@ pub trait ConnectionMessenger<ReceiveEvent: Debug> {
     fn send_event(&mut self, address: &SockAddr, event: ReceiveEvent);
     
     /// Sends a packet.
-    fn send_packet(&mut self, address: &SockAddr, payload: &[u8]);
+    fn send_packet(&mut self, address: &SockAddr, payload: &[u8]) -> std::io::Result<()>;
     
     /// Sends a packet with multiple buffers.
-    fn send_packet_vectored(&mut self, address: &SockAddr, bufs: &[IoSlice<'_>]);
+    fn send_packet_vectored(&mut self, address: &SockAddr, bufs: &[IoSlice<'_>]) -> std::io::Result<()>;
 }
 
 /// Returns an address of an event.

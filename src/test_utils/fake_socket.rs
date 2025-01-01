@@ -52,7 +52,7 @@ impl FakeSocket {
 
     /// Processes any inbound/outbound packets and handle idle clients.
     pub fn manual_poll(&mut self, time: Instant) {
-        self.handler.manual_poll(time);
+        self.handler.manual_poll(time).unwrap();
     }
 
     /// Returns a number of active connections.

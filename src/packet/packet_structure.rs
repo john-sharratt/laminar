@@ -167,8 +167,8 @@ impl Packet {
     /// # Remark
     /// Could be both the receiving endpoint or the one to send this packet to.
     /// This depends whether it is a packet that has been received or one that needs to be send.
-    pub fn addr(&self) -> SockAddr {
-        self.addr.clone()
+    pub fn addr(&self) -> &SockAddr {
+        &self.addr
     }
 
     /// Returns the [`DeliveryGuarantee`](./enum.DeliveryGuarantee.html) of this packet.
@@ -233,7 +233,7 @@ mod tests {
     fn assure_creation_unreliable_packet() {
         let packet = Packet::unreliable(test_addr(), test_payload());
 
-        assert_eq!(packet.addr(), test_addr());
+        assert_eq!(packet.addr().clone(), test_addr());
         assert_eq!(packet.payload(), test_payload().as_slice());
         assert_eq!(packet.delivery_guarantee(), DeliveryGuarantee::Unreliable);
         assert_eq!(packet.order_guarantee(), OrderingGuarantee::None);
@@ -243,7 +243,7 @@ mod tests {
     fn assure_creation_unreliable_sequenced() {
         let packet = Packet::unreliable_sequenced(test_addr(), test_payload(), Some(1));
 
-        assert_eq!(packet.addr(), test_addr());
+        assert_eq!(packet.addr().clone(), test_addr());
         assert_eq!(packet.payload(), test_payload().as_slice());
         assert_eq!(packet.delivery_guarantee(), DeliveryGuarantee::Unreliable);
         assert_eq!(
@@ -256,7 +256,7 @@ mod tests {
     fn assure_creation_reliable() {
         let packet = Packet::reliable_unordered(test_addr(), test_payload());
 
-        assert_eq!(packet.addr(), test_addr());
+        assert_eq!(packet.addr().clone(), test_addr());
         assert_eq!(packet.payload(), test_payload().as_slice());
         assert_eq!(packet.delivery_guarantee(), DeliveryGuarantee::Reliable);
         assert_eq!(packet.order_guarantee(), OrderingGuarantee::None);
@@ -266,7 +266,7 @@ mod tests {
     fn assure_creation_reliable_ordered() {
         let packet = Packet::reliable_ordered(test_addr(), test_payload(), Some(1));
 
-        assert_eq!(packet.addr(), test_addr());
+        assert_eq!(packet.addr().clone(), test_addr());
         assert_eq!(packet.payload(), test_payload().as_slice());
         assert_eq!(packet.delivery_guarantee(), DeliveryGuarantee::Reliable);
         assert_eq!(
@@ -279,7 +279,7 @@ mod tests {
     fn assure_creation_reliable_sequence() {
         let packet = Packet::reliable_sequenced(test_addr(), test_payload(), Some(1));
 
-        assert_eq!(packet.addr(), test_addr());
+        assert_eq!(packet.addr().clone(), test_addr());
         assert_eq!(packet.payload(), test_payload().as_slice());
         assert_eq!(packet.delivery_guarantee(), DeliveryGuarantee::Reliable);
         assert_eq!(

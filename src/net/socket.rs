@@ -294,16 +294,17 @@ impl Socket {
 
     /// Runs the polling loop with the default '1ms' sleep duration. This should run in a spawned thread
     /// since calls to `self.manual_poll` are blocking.
-    pub fn start_polling(&mut self) {
-        self.start_polling_with_duration(Some(Duration::from_millis(1)))
+    pub fn start_polling(&mut self) -> std::io::Result<()> {
+        self.start_polling_with_duration(Some(Duration::from_millis(1)))?;
+        Ok(())
     }
 
     /// Runs the polling loop with a specified sleep duration. This should run in a spawned thread
     /// since calls to `self.manual_poll` are blocking.
-    pub fn start_polling_with_duration(&mut self, sleep_duration: Option<Duration>) {
+    pub fn start_polling_with_duration(&mut self, sleep_duration: Option<Duration>) -> std::io::Result<()> {
         // nothing should break out of this loop!
         loop {
-            self.manual_poll(Instant::now());
+            self.manual_poll(Instant::now())?;
             match sleep_duration {
                 None => yield_now(),
                 Some(duration) => sleep(duration),
@@ -312,8 +313,9 @@ impl Socket {
     }
 
     /// Processes any inbound/outbound packets and handle idle clients
-    pub fn manual_poll(&mut self, time: Instant) {
-        self.handler.manual_poll(time);
+    pub fn manual_poll(&mut self, time: Instant) -> std::io::Result<()> {
+        self.handler.manual_poll(time)?;
+        Ok(())
     }
 
     /// Returns the local socket address
@@ -337,34 +339,26 @@ pub struct SocketTx {
 }
 
 impl SocketTx {
-    /// Returns a handle to the packet sender which provides a thread-safe way to enqueue packets
-    /// to be processed. This should be used when the socket is busy running its polling loop in a
-    /// separate thread.
-    pub fn get_packet_sender(&self) -> Sender<Packet> {
-        self.handler.event_sender().clone()
-    }
-
     /// Sends a single packet
     pub fn send(&mut self, packet: Packet) -> Result<()> {
         self.handler
-            .event_sender()
-            .send(packet)
-            .expect("Receiver must exists.");
+            .send_packet(packet)?;
         Ok(())
     }
 
     /// Runs the polling loop with the default '1ms' sleep duration. This should run in a spawned thread
     /// since calls to `self.manual_poll` are blocking.
-    pub fn start_polling(&mut self) {
-        self.start_polling_with_duration(Some(Duration::from_millis(1)))
+    pub fn start_polling(&mut self) -> std::io::Result<()> {
+        self.start_polling_with_duration(Some(Duration::from_millis(1)))?;
+        Ok(())
     }
 
     /// Runs the polling loop with a specified sleep duration. This should run in a spawned thread
     /// since calls to `self.manual_poll` are blocking.
-    pub fn start_polling_with_duration(&mut self, sleep_duration: Option<Duration>) {
+    pub fn start_polling_with_duration(&mut self, sleep_duration: Option<Duration>) -> std::io::Result<()> {
         // nothing should break out of this loop!
         loop {
-            self.manual_poll(Instant::now());
+            self.manual_poll(Instant::now())?;
             match sleep_duration {
                 None => yield_now(),
                 Some(duration) => sleep(duration),
@@ -373,8 +367,9 @@ impl SocketTx {
     }
 
     /// Processes any inbound/outbound packets and handle idle clients
-    pub fn manual_poll(&mut self, time: Instant) {
-        self.handler.manual_poll(time);
+    pub fn manual_poll(&mut self, time: Instant) -> std::io::Result<()> {
+        self.handler.manual_poll(time)?;
+        Ok(())
     }
 }
 
@@ -405,16 +400,17 @@ impl SocketRx {
 
     /// Runs the polling loop with the default '1ms' sleep duration. This should run in a spawned thread
     /// since calls to `self.manual_poll` are blocking.
-    pub fn start_polling(&mut self) {
-        self.start_polling_with_duration(Some(Duration::from_millis(1)))
+    pub fn start_polling(&mut self) -> std::io::Result<()> {
+        self.start_polling_with_duration(Some(Duration::from_millis(1)))?;
+        Ok(())
     }
 
     /// Runs the polling loop with a specified sleep duration. This should run in a spawned thread
     /// since calls to `self.manual_poll` are blocking.
-    pub fn start_polling_with_duration(&mut self, sleep_duration: Option<Duration>) {
+    pub fn start_polling_with_duration(&mut self, sleep_duration: Option<Duration>) -> std::io::Result<()> {
         // nothing should break out of this loop!
         loop {
-            self.manual_poll(Instant::now());
+            self.manual_poll(Instant::now())?;
             match sleep_duration {
                 None => yield_now(),
                 Some(duration) => sleep(duration),
@@ -423,8 +419,9 @@ impl SocketRx {
     }
 
     /// Processes any inbound/outbound packets and handle idle clients
-    pub fn manual_poll(&mut self, time: Instant) {
-        self.handler.manual_poll(time);
+    pub fn manual_poll(&mut self, time: Instant) -> std::io::Result<()> {
+        self.handler.manual_poll(time)?;
+        Ok(())
     }
 
     /// Returns the local socket address
