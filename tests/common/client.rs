@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
-use std::time::Instant;
+use coarsetime::Instant;
 
 use log::info;
 

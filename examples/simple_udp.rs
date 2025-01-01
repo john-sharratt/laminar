@@ -3,7 +3,7 @@
 //! 2. setting up client to send data.
 //! 3. serialize data to send and deserialize when received.
 use std::net::SocketAddr;
-use std::time::Instant;
+use coarsetime::Instant;
 
 use bincode::{deserialize, serialize};
 use serde_derive::{Deserialize, Serialize};

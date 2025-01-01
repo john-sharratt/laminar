@@ -1,4 +1,5 @@
-use std::{self, collections::HashMap, fmt::Debug, io::Result, net::SocketAddr, time::Instant};
+use std::{self, collections::HashMap, fmt::Debug, io::Result, net::SocketAddr};
+use coarsetime::Instant;
 
 use crossbeam_channel::{self, unbounded, Receiver, Sender};
 use log::error;
@@ -210,8 +211,9 @@ mod tests {
     use std::{
         collections::HashSet,
         net::{SocketAddr, SocketAddrV4},
-        time::{Duration, Instant},
+        time::Duration,
     };
+    use coarsetime::Instant;
 
     use crate::net::LinkConditioner;
     use crate::test_utils::*;
@@ -662,15 +664,15 @@ mod tests {
         );
 
         // give just enough time for no timeout events to occur (yet)
-        server.manual_poll(now + config.idle_connection_timeout - Duration::from_millis(1));
-        client.manual_poll(now + config.idle_connection_timeout - Duration::from_millis(1));
+        server.manual_poll(now + coarsetime::Duration::from(config.idle_connection_timeout) - coarsetime::Duration::from_millis(1));
+        client.manual_poll(now + coarsetime::Duration::from(config.idle_connection_timeout) - coarsetime::Duration::from_millis(1));
 
         assert_eq!(server.recv(), None);
         assert_eq!(client.recv(), None);
 
         // give enough time for timeouts to be detected
-        server.manual_poll(now + config.idle_connection_timeout);
-        client.manual_poll(now + config.idle_connection_timeout);
+        server.manual_poll(now + coarsetime::Duration::from(config.idle_connection_timeout));
+        client.manual_poll(now + coarsetime::Duration::from(config.idle_connection_timeout));
 
         assert_eq!(
             server.recv().unwrap(),
@@ -740,12 +742,12 @@ mod tests {
         );
 
         // give time to send heartbeats
-        client.manual_poll(now + config.heartbeat_interval.unwrap());
-        server.manual_poll(now + config.heartbeat_interval.unwrap());
+        client.manual_poll(now + coarsetime::Duration::from(config.heartbeat_interval.unwrap()));
+        server.manual_poll(now + coarsetime::Duration::from(config.heartbeat_interval.unwrap()));
 
         // give time for timeouts to occur if no heartbeats were sent
-        client.manual_poll(now + config.idle_connection_timeout);
-        server.manual_poll(now + config.idle_connection_timeout);
+        client.manual_poll(now + coarsetime::Duration::from(config.idle_connection_timeout));
+        server.manual_poll(now + coarsetime::Duration::from(config.idle_connection_timeout));
 
         // assert that no disconnection events occurred
         assert_eq!(client.recv(), None);

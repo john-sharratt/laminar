@@ -1,4 +1,5 @@
-use std::{collections::HashSet, net::SocketAddr, time::Instant};
+use std::{collections::HashSet, net::SocketAddr};
+use coarsetime::Instant;
 
 #[cfg(feature = "tester")]
 use laminar::LinkConditioner;

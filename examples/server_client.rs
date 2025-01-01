@@ -3,7 +3,7 @@
 //! Note that in practice you don't want to implement a chat client using UDP.
 use std::io::stdin;
 use std::thread;
-use std::time::Instant;
+use coarsetime::Instant;
 
 use laminar::{ErrorKind, Packet, Socket, SocketEvent};
 

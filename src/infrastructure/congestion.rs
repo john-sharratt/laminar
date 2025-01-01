@@ -1,4 +1,4 @@
-use std::time::Instant;
+use coarsetime::Instant;
 
 use crate::{
     net::{NetworkQuality, RttMeasurer},
@@ -43,7 +43,7 @@ impl CongestionHandler {
 
 #[cfg(test)]
 mod test {
-    use std::time::Instant;
+    use coarsetime::Instant;
 
     use crate::infrastructure::CongestionHandler;
     use crate::Config;

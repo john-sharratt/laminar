@@ -1,6 +1,7 @@
 use std::fmt;
 use std::net::SocketAddr;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use coarsetime::Instant;
 
 use crate::{
     config::Config,
@@ -89,14 +90,14 @@ impl VirtualConnection {
     pub fn last_heard(&self, time: Instant) -> Duration {
         // TODO: Replace with `saturating_duration_since` once it becomes stable.
         // this function panics if the user supplies a time instant earlier than last_heard
-        time.duration_since(self.last_heard)
+        time.duration_since(self.last_heard).into()
     }
 
     /// Returns a [Duration] representing the interval since we last sent to the client
     pub fn last_sent(&self, time: Instant) -> Duration {
         // TODO: Replace with `saturating_duration_since` once it becomes stable.
         // this function panics if the user supplies a time instant earlier than last_heard
-        time.duration_since(self.last_sent)
+        time.duration_since(self.last_sent).into()
     }
 
     /// Pre-processes the given buffer to be sent over the network.
@@ -454,7 +455,7 @@ impl fmt::Debug for VirtualConnection {
 #[cfg(test)]
 mod tests {
     use std::io::Write;
-    use std::time::{Duration, Instant};
+    use coarsetime::Instant;
 
     use byteorder::{BigEndian, WriteBytesExt};
 
@@ -478,25 +479,25 @@ mod tests {
             .process_outgoing(
                 PacketInfo::heartbeat_packet(&[]),
                 None,
-                curr_sent + Duration::from_secs(1),
+                curr_sent + coarsetime::Duration::from_secs(1),
             )
             .unwrap()
             .into_iter()
             .next()
             .unwrap();
         let in_packet = connection
-            .process_incoming(&out_packet.contents(), curr_heard + Duration::from_secs(2))
+            .process_incoming(&out_packet.contents(), curr_heard + coarsetime::Duration::from_secs(2))
             .unwrap()
             .into_iter()
             .next();
 
         assert_eq!(
             connection.last_sent.duration_since(curr_sent),
-            Duration::from_secs(1)
+            coarsetime::Duration::from_secs(1)
         );
         assert_eq!(
             connection.last_heard.duration_since(curr_heard),
-            Duration::from_secs(2)
+            coarsetime::Duration::from_secs(2)
         );
         assert!(in_packet.is_none());
     }

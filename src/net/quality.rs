@@ -79,7 +79,8 @@ impl RttMeasurer {
 #[cfg(test)]
 mod test {
     use std::net::ToSocketAddrs;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
+    use coarsetime::Instant;
 
     use crate::config::Config;
     use crate::net::VirtualConnection;

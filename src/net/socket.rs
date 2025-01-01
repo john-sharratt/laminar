@@ -2,8 +2,9 @@ use std::{
     self,
     net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs, UdpSocket},
     thread::{sleep, yield_now},
-    time::{Duration, Instant},
+    time::Duration,
 };
+use coarsetime::Instant;
 
 use crossbeam_channel::{self, Receiver, Sender, TryRecvError};
 

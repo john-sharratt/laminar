@@ -40,6 +40,7 @@ pub use self::packet::{DeliveryGuarantee, OrderingGuarantee, Packet};
 #[cfg(feature = "tester")]
 pub use self::throughput::ThroughputMonitoring;
 pub use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
+pub use coarsetime::{Duration, Instant};
 
 
 mod config;

@@ -1,4 +1,5 @@
-use std::{net::SocketAddr, time::Instant};
+use std::net::SocketAddr;
+use coarsetime::Instant;
 
 use crossbeam_channel::{Receiver, Sender};
 

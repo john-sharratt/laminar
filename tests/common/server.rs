@@ -1,6 +1,7 @@
 use std::net::SocketAddr;
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use coarsetime::Instant;
 
 use crossbeam_channel::{Receiver, Sender, TryIter};
 use log::error;

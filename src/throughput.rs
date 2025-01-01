@@ -1,5 +1,6 @@
 use std::fmt::{self, Debug, Display};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use coarsetime::Instant;
 
 /// Entry for throughput monitor with measured information.
 #[derive(Debug)]

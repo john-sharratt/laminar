@@ -1,5 +1,5 @@
 use std::net::SocketAddr;
-use std::time::Instant;
+use coarsetime::Instant;
 
 use log::error;
 
