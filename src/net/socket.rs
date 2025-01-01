@@ -15,6 +15,8 @@ use crate::{
     packet::Packet,
 };
 
+use super::{DatagramSocketReceiver, DatagramSocketSender};
+
 fn create_socket(listen_addr: socket2::SockAddr) -> std::io::Result<socket2::Socket> {
     let socket = socket2::Socket::new(
         match listen_addr.is_ipv4() {
@@ -30,13 +32,23 @@ fn create_socket(listen_addr: socket2::SockAddr) -> std::io::Result<socket2::Soc
     Ok(socket)
 }
 
+#[derive(Debug)]
+struct SocketWithConditionerTx {
+    socket_tx: socket2::Socket,
+    link_conditioner: Option<LinkConditioner>,
+}
+
+#[derive(Debug)]
+struct SocketWithConditionerRx {
+    is_blocking_mode: bool,
+    socket_rx: socket2::Socket,
+}
+
 // Wraps `LinkConditioner` and `UdpSocket` together. LinkConditioner is enabled when building with a "tester" feature.
 #[derive(Debug)]
 struct SocketWithConditioner {
-    is_blocking_mode: bool,
-    socket_tx: socket2::Socket,
-    socket_rx: socket2::Socket,
-    link_conditioner: Option<LinkConditioner>,
+    tx: SocketWithConditionerTx,
+    rx: SocketWithConditionerRx,
 }
 
 impl SocketWithConditioner {
@@ -44,10 +56,14 @@ impl SocketWithConditioner {
         let socket_tx = create_socket(socket.local_addr()?)?;
         let socket_rx = socket;         
         Ok(SocketWithConditioner {
-            is_blocking_mode,
-            socket_rx,
-            socket_tx,
-            link_conditioner: None,
+            rx: SocketWithConditionerRx {
+                is_blocking_mode,
+                socket_rx,
+            },
+            tx : SocketWithConditionerTx {
+                socket_tx,
+                link_conditioner: None,
+            }
         })
     }
 
@@ -57,8 +73,56 @@ impl SocketWithConditioner {
     }
 }
 
-/// Provides a `DatagramSocket` implementation for `SocketWithConditioner`
 impl DatagramSocket for SocketWithConditioner {
+    fn split(self) -> (Box<dyn DatagramSocketSender + Send + Sync>, Box<dyn DatagramSocketReceiver + Send + Sync>) {
+        (Box::new(self.tx), Box::new(self.rx))
+    }
+}
+
+impl DatagramSocketSender for SocketWithConditioner {
+    fn clone_box(&self) -> Box<dyn DatagramSocketSender + Send + Sync> {
+        Box::new(SocketWithConditionerTx {
+            socket_tx: self.tx.socket_tx.try_clone().unwrap(),
+            link_conditioner: self.tx.link_conditioner.clone(),
+        })
+    }
+
+    fn send_packet(&mut self, addr: &SockAddr, payload: &[u8]) -> std::io::Result<usize> {
+        self.tx.send_packet(addr, payload)
+    }
+
+    fn send_packet_vectored(&mut self, addr: &SockAddr, bufs: &[IoSlice<'_>]) -> std::io::Result<usize> {
+        self.tx.send_packet_vectored(addr, bufs)
+    }
+}
+
+impl DatagramSocketReceiver for SocketWithConditioner {
+    fn receive_packet<'a>(
+        &mut self,
+        buffer: &'a mut [MaybeUninit<u8>],
+    ) -> std::io::Result<(&'a [u8], SockAddr)> {
+        self.rx.receive_packet(buffer)
+    }
+
+    fn local_addr(&self) -> std::io::Result<SockAddr> {
+        self.rx.local_addr()
+    }
+
+    fn is_blocking_mode(&self) -> bool {
+        self.rx.is_blocking_mode
+    }
+}
+
+/// Provides a `DatagramSocket` implementation for `SocketWithConditioner`
+impl DatagramSocketSender for SocketWithConditionerTx {
+    // Clones the `SocketWithConditionerTx` struct.
+    fn clone_box(&self) -> Box<dyn DatagramSocketSender + Send + Sync> {
+        Box::new(SocketWithConditionerTx {
+            socket_tx: self.socket_tx.try_clone().unwrap(),
+            link_conditioner: self.link_conditioner.clone(),
+        })
+    }
+
     // Determinate whether packet will be sent or not based on `LinkConditioner` if enabled.
     fn send_packet(&mut self, addr: &SockAddr, payload: &[u8]) -> std::io::Result<usize> {
         if cfg!(feature = "tester") {
@@ -82,7 +146,9 @@ impl DatagramSocket for SocketWithConditioner {
         }
         self.socket_tx.send_to_vectored(bufs, addr)
     }
+}
 
+impl DatagramSocketReceiver for SocketWithConditionerRx {
     /// Receives a single packet from UDP socket.
     fn receive_packet<'a>(
         &mut self,
@@ -107,10 +173,41 @@ impl DatagramSocket for SocketWithConditioner {
     }
 }
 
+impl DatagramSocketSender for Box<dyn DatagramSocketSender> {
+    fn clone_box(&self) -> Box<dyn DatagramSocketSender + Send + Sync> {
+        (**self).clone_box()
+    }
+
+    fn send_packet(&mut self, addr: &SockAddr, payload: &[u8]) -> std::io::Result<usize> {
+        (**self).send_packet(addr, payload)
+    }
+
+    fn send_packet_vectored(&mut self, addr: &SockAddr, bufs: &[IoSlice<'_>]) -> std::io::Result<usize> {
+        (**self).send_packet_vectored(addr, bufs)
+    }
+}
+
+impl DatagramSocketReceiver for Box<dyn DatagramSocketReceiver> {
+    fn receive_packet<'a>(
+        &mut self,
+        buffer: &'a mut [MaybeUninit<u8>],
+    ) -> std::io::Result<(&'a [u8], SockAddr)> {
+        (**self).receive_packet(buffer)
+    }
+
+    fn local_addr(&self) -> std::io::Result<SockAddr> {
+        (**self).local_addr()
+    }
+
+    fn is_blocking_mode(&self) -> bool {
+        (**self).is_blocking_mode()
+    }
+}
+
 /// A reliable UDP socket implementation with configurable reliability and ordering guarantees.
 #[derive(Debug)]
 pub struct Socket {
-    handler: ConnectionManager<SocketWithConditioner, VirtualConnection>,
+    handler: ConnectionManager<VirtualConnection>,
 }
 
 impl Socket {
@@ -212,7 +309,7 @@ impl Socket {
 
     /// Returns the local socket address
     pub fn local_addr(&self) -> Result<SockAddr> {
-        Ok(self.handler.socket().local_addr()?)
+        Ok(self.handler.socket_rx().local_addr()?)
     }
 
     /// Sets the link conditioner for this socket. See [LinkConditioner] for further details.

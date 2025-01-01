@@ -2,7 +2,7 @@
 //! You can think of the socket, connection management, congestion control.
 
 pub use self::connection::{Connection, ConnectionEventAddress, ConnectionMessenger};
-pub use self::connection_manager::{ConnectionManager, DatagramSocket};
+pub use self::connection_manager::{ConnectionManager, DatagramSocket, DatagramSocketSender, DatagramSocketReceiver};
 pub use self::events::SocketEvent;
 pub use self::link_conditioner::LinkConditioner;
 pub use self::socket::Socket;

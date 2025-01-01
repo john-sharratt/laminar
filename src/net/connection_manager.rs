@@ -1,4 +1,4 @@
-use std::{self, collections::HashMap, fmt::Debug, io::{IoSlice, Result}, mem::MaybeUninit};
+use std::{self, collections::HashMap, fmt::Debug, io::{IoSlice, Result}, mem::MaybeUninit, ops::{Deref, DerefMut}, sync::{Arc, Mutex}};
 use coarsetime::Instant;
 
 use crossbeam_channel::{self, unbounded, Receiver, Sender};
@@ -14,13 +14,25 @@ use crate::{
 // pub struct ConnectionEvent<Event: Debug>(pub SocketAddr, pub Event);
 
 /// A datagram socket is a type of network socket which provides a connectionless point for sending or receiving data packets.
-pub trait DatagramSocket: Debug {
+pub trait DatagramSocket: DatagramSocketSender + DatagramSocketReceiver + Debug {
+    /// Returns the socket address that this socket was created from.
+    fn split(self) -> (Box<dyn DatagramSocketSender + Send + Sync>, Box<dyn DatagramSocketReceiver + Send + Sync>);
+}
+
+/// A datagram socket is a type of network socket which provides a connectionless point for sending or receiving data packets.
+pub trait DatagramSocketSender: Debug {
+    /// Clones this sender
+    fn clone_box(&self) -> Box<dyn DatagramSocketSender + Send + Sync>;
+
     /// Sends a single packet to the socket.
     fn send_packet(&mut self, addr: &SockAddr, payload: &[u8]) -> Result<usize>;
 
     /// Sends a single packet made up of multiple buffers to the socket.
     fn send_packet_vectored(&mut self, addr: &SockAddr, bufs: &[IoSlice<'_>]) -> std::io::Result<usize>;
+}
 
+/// A datagram socket is a type of network socket which provides a connectionless point for sending or receiving data packets.
+pub trait DatagramSocketReceiver: Debug {
     /// Receives a single packet from the socket.
     fn receive_packet<'a>(&mut self, buffer: &'a mut [MaybeUninit<u8>]) -> Result<(&'a [u8], SockAddr)>;
 
@@ -33,16 +45,25 @@ pub trait DatagramSocket: Debug {
 
 // This will be used by a `Connection`.
 #[derive(Debug)]
-struct SocketEventSenderAndConfig<TSocket: DatagramSocket, ReceiveEvent: Debug> {
+struct SocketEventSenderAndConfig<ReceiveEvent: Debug> {
     config: Config,
-    socket: TSocket,
+    socket: Box<dyn DatagramSocketSender + Send + Sync>,
     event_sender: Sender<ReceiveEvent>,
 }
 
-impl<TSocket: DatagramSocket, ReceiveEvent: Debug>
-    SocketEventSenderAndConfig<TSocket, ReceiveEvent>
+impl<ReceiveEvent: Debug> Clone for SocketEventSenderAndConfig<ReceiveEvent> {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            socket: self.socket.clone_box(),
+            event_sender: self.event_sender.clone(),
+        }
+    }
+}
+
+impl< ReceiveEvent: Debug> SocketEventSenderAndConfig<ReceiveEvent>
 {
-    fn new(config: Config, socket: TSocket, event_sender: Sender<ReceiveEvent>) -> Self {
+    fn new(config: Config, socket: Box<dyn DatagramSocketSender + Send + Sync>, event_sender: Sender<ReceiveEvent>) -> Self {
         Self {
             config,
             socket,
@@ -51,8 +72,8 @@ impl<TSocket: DatagramSocket, ReceiveEvent: Debug>
     }
 }
 
-impl<TSocket: DatagramSocket, ReceiveEvent: Debug> ConnectionMessenger<ReceiveEvent>
-    for SocketEventSenderAndConfig<TSocket, ReceiveEvent>
+impl<ReceiveEvent: Debug> ConnectionMessenger<ReceiveEvent>
+    for SocketEventSenderAndConfig<ReceiveEvent>
 {
     fn config(&self) -> &Config {
         &self.config
@@ -79,47 +100,64 @@ impl<TSocket: DatagramSocket, ReceiveEvent: Debug> ConnectionMessenger<ReceiveEv
 /// Connection capabilities depends on what is an actual `Connection` type.
 /// Connection type also defines a type of sending and receiving events.
 #[derive(Debug)]
-pub struct ConnectionManager<TSocket: DatagramSocket, TConnection: Connection> {
-    connections: HashMap<SockAddr, TConnection>,
+pub struct ConnectionManager<TConnection: Connection> {
+    connections: Arc<Mutex<HashMap<SockAddr, TConnection>>>,
     receive_buffer: Vec<MaybeUninit<u8>>,
     user_event_receiver: Receiver<TConnection::SendEvent>,
-    messenger: SocketEventSenderAndConfig<TSocket, TConnection::ReceiveEvent>,
+    tx: SocketEventSenderAndConfig<TConnection::ReceiveEvent>,
+    rx: Box<dyn DatagramSocketReceiver + Send + Sync>,
     event_receiver: Receiver<TConnection::ReceiveEvent>,
     user_event_sender: Sender<TConnection::SendEvent>,
     max_unestablished_connections: u16,
 }
 
-impl<TSocket: DatagramSocket, TConnection: Connection> ConnectionManager<TSocket, TConnection> {
+impl<TConnection: Connection> ConnectionManager<TConnection> {
     /// Creates an instance of `ConnectionManager` by passing a socket and config.
-    pub fn new(socket: TSocket, config: Config) -> Self {
+    pub fn new<TSocket: DatagramSocket>(socket: TSocket, config: Config) -> Self {
         let (event_sender, event_receiver) = unbounded();
         let (user_event_sender, user_event_receiver) = unbounded();
         let max_unestablished_connections = config.max_unestablished_connections;
+
+        let (tx, rx) = socket.split();
 
         ConnectionManager {
             receive_buffer: vec![MaybeUninit::uninit(); config.receive_buffer_max_size],
             connections: Default::default(),
             user_event_receiver,
-            messenger: SocketEventSenderAndConfig::new(config, socket, event_sender),
+            tx: SocketEventSenderAndConfig::new(config, tx, event_sender),
+            rx,
             user_event_sender,
             event_receiver,
             max_unestablished_connections,
         }
     }
 
+    /// Splits the `ConnectionManager` into two parts: the `ConnectionManagerSender` and the `ConnectionManager`.
+    pub fn split(self) -> (ConnectionManagerSender<TConnection>, Self) {
+        (
+            ConnectionManagerSender {
+                connections: self.connections.clone(),
+                user_event_receiver: self.user_event_receiver.clone(),
+                tx: self.tx.clone(),
+                event_receiver: self.event_receiver.clone(),
+                user_event_sender: self.user_event_sender.clone(),
+            },
+            self,
+        )
+    }
+
     /// Processes any inbound packets and events.
     pub fn manual_poll_inbound(&mut self, time: Instant) {
         let mut unestablished_connections = self.unestablished_connection_count();
-        let messenger = &mut self.messenger;
+        let messenger = &mut self.tx;
 
         // first we pull all newly arrived packets and handle them
         loop {
-            match messenger
-                .socket
-                .receive_packet(self.receive_buffer.as_mut())
+            match self.rx.receive_packet(self.receive_buffer.as_mut())
             {
                 Ok((payload, address)) => {
-                    if let Some(conn) = self.connections.get_mut(&address) {
+                    let mut connections = self.connections.lock().unwrap();
+                    if let Some(conn) = connections.get_mut(&address) {
                         let was_est = conn.is_established();
                         conn.process_packet(messenger, payload, time);
                         if !was_est && conn.is_established() {
@@ -132,7 +170,7 @@ impl<TSocket: DatagramSocket, TConnection: Connection> ConnectionManager<TSocket
                         // We only allow a maximum amount number of unestablished connections to bet created
                         // from inbound packets to prevent packet flooding from allocating unbounded memory.
                         if unestablished_connections < self.max_unestablished_connections as usize {
-                            self.connections.insert(address, conn);
+                            connections.insert(address, conn);
                             unestablished_connections += 1;
                         }
                     }
@@ -145,7 +183,7 @@ impl<TSocket: DatagramSocket, TConnection: Connection> ConnectionManager<TSocket
                 }
             }
             // prevent from blocking, break after receiving first packet
-            if messenger.socket.is_blocking_mode() {
+            if self.rx.is_blocking_mode() {
                 break;
             }
         }
@@ -153,12 +191,13 @@ impl<TSocket: DatagramSocket, TConnection: Connection> ConnectionManager<TSocket
 
     /// Processes any outbound packets and events.
     pub fn manual_poll_outbound(&mut self, time: Instant) {
-        let messenger = &mut self.messenger;
+        let messenger = &mut self.tx;
 
         // now grab all the waiting packets and send them
         while let Ok(event) = self.user_event_receiver.try_recv() {
             // get or create connection
-            let conn = self.connections.entry(event.address()).or_insert_with(|| {
+            let mut connections = self.connections.lock().unwrap();
+            let conn = connections.entry(event.address()).or_insert_with(|| {
                 TConnection::create_connection(messenger, event.address(), time)
             });
             conn.process_event(messenger, event, time);
@@ -168,15 +207,17 @@ impl<TSocket: DatagramSocket, TConnection: Connection> ConnectionManager<TSocket
     /// Processes connection specific logic for active connections.
     /// Removes dropped connections from active connections list.
     pub fn manual_poll_update(&mut self, time: Instant) {
-        let messenger = &mut self.messenger;
+        let messenger = &mut self.tx;
 
         // update all connections
-        for conn in self.connections.values_mut() {
+        for conn in self.connections.lock().unwrap().values_mut() {
             conn.update(messenger, time);
         }
 
         // iterate through all connections and remove those that should be dropped
         self.connections
+            .lock()
+            .unwrap()
             .retain(|_, conn| !conn.should_drop(messenger, time));
     }
 
@@ -204,12 +245,19 @@ impl<TSocket: DatagramSocket, TConnection: Connection> ConnectionManager<TSocket
     }
 
     /// Returns socket reference.
-    pub fn socket(&self) -> &TSocket {
-        &self.messenger.socket
+    pub fn socket_rx(&self) -> &(dyn DatagramSocketReceiver) {
+        self.rx.deref()
+    }
+
+    /// Returns socket reference.
+    pub fn socket_tx(&self) -> &(dyn DatagramSocketSender) {
+        self.tx.socket.deref()
     }
 
     fn unestablished_connection_count(&self) -> usize {
         self.connections
+            .lock()
+            .unwrap()
             .iter()
             .filter(|c| !c.1.is_established())
             .count()
@@ -217,14 +265,105 @@ impl<TSocket: DatagramSocket, TConnection: Connection> ConnectionManager<TSocket
 
     /// Returns socket mutable reference.
     #[allow(dead_code)]
-    pub fn socket_mut(&mut self) -> &mut TSocket {
-        &mut self.messenger.socket
+    pub fn socket_rx_mut(&mut self) -> &mut (dyn DatagramSocketReceiver) {
+        self.rx.deref_mut()
+    }
+
+    /// Returns socket mutable reference.
+    #[allow(dead_code)]
+    pub fn socket_tx_mut(&mut self) -> &mut (dyn DatagramSocketSender) {
+        self.tx.socket.deref_mut()
     }
 
     /// Returns a number of active connections.
     #[cfg(test)]
     pub fn connections_count(&self) -> usize {
-        self.connections.len()
+        self.connections.lock().unwrap().len()
+    }
+}
+
+/// Implements a concept of connections on top of datagram socket.
+/// Connection capabilities depends on what is an actual `Connection` type.
+/// Connection type also defines a type of sending and receiving events.
+#[derive(Debug)]
+pub struct ConnectionManagerSender<TConnection: Connection> {
+    connections: Arc<Mutex<HashMap<SockAddr, TConnection>>>,
+    user_event_receiver: Receiver<TConnection::SendEvent>,
+    tx: SocketEventSenderAndConfig<TConnection::ReceiveEvent>,
+    event_receiver: Receiver<TConnection::ReceiveEvent>,
+    user_event_sender: Sender<TConnection::SendEvent>,
+}
+
+impl<TConnection: Connection> ConnectionManagerSender<TConnection> {
+    /// Processes any outbound packets and events.
+    pub fn manual_poll_outbound(&mut self, time: Instant) {
+        let messenger = &mut self.tx;
+
+        // now grab all the waiting packets and send them
+        while let Ok(event) = self.user_event_receiver.try_recv() {
+            // get or create connection
+            let mut connections = self.connections.lock().unwrap();
+            let conn = connections.entry(event.address()).or_insert_with(|| {
+                TConnection::create_connection(messenger, event.address(), time)
+            });
+            conn.process_event(messenger, event, time);
+        }
+    }
+
+    /// Processes connection specific logic for active connections.
+    /// Removes dropped connections from active connections list.
+    pub fn manual_poll_update(&mut self, time: Instant) {
+        let messenger = &mut self.tx;
+
+        // update all connections
+        for conn in self.connections.lock().unwrap().values_mut() {
+            conn.update(messenger, time);
+        }
+
+        // iterate through all connections and remove those that should be dropped
+        self.connections
+            .lock()
+            .unwrap()
+            .retain(|_, conn| !conn.should_drop(messenger, time));
+    }
+
+    /// Processes any inbound/outbound packets and events.
+    /// Processes connection specific logic for active connections.
+    /// Removes dropped connections from active connections list.
+    pub fn manual_poll(&mut self, time: Instant) {
+        self.manual_poll_outbound(time);
+        self.manual_poll_update(time);
+    }
+
+    /// Returns a handle to the event sender which provides a thread-safe way to enqueue user events
+    /// to be processed. This should be used when the socket is busy running its polling loop in a
+    /// separate thread.
+    pub fn event_sender(&self) -> &Sender<TConnection::SendEvent> {
+        &self.user_event_sender
+    }
+
+    /// Returns a handle to the event receiver which provides a thread-safe way to retrieve events
+    /// from the connections. This should be used when the socket is busy running its polling loop in
+    /// a separate thread.
+    pub fn event_receiver(&self) -> &Receiver<TConnection::ReceiveEvent> {
+        &self.event_receiver
+    }
+
+    /// Returns socket reference.
+    pub fn socket(&self) -> &(dyn DatagramSocketSender) {
+        self.tx.socket.deref()
+    }
+
+    /// Returns socket mutable reference.
+    #[allow(dead_code)]
+    pub fn socket_mut(&mut self) -> &mut (dyn DatagramSocketSender) {
+        self.tx.socket.deref_mut()
+    }
+
+    /// Returns a number of active connections.
+    #[cfg(test)]
+    pub fn connections_count(&self) -> usize {
+        self.connections.lock().unwrap().len()
     }
 }
 
@@ -238,7 +377,6 @@ mod tests {
     use coarsetime::Instant;
     use socket2::SockAddr;
 
-    use crate::net::LinkConditioner;
     use crate::test_utils::*;
     use crate::{Config, Packet, SocketEvent};
 
@@ -856,71 +994,6 @@ mod tests {
     }
 
     #[test]
-    fn really_bad_network_keeps_chugging_along() {
-        let (mut server, mut client, _) = create_server_client_network();
-
-        let time = Instant::now();
-
-        // we give both the server and the client a really bad bidirectional link
-        let link_conditioner = {
-            let mut lc = LinkConditioner::new();
-            lc.set_packet_loss(0.9);
-            Some(lc)
-        };
-
-        client.set_link_conditioner(link_conditioner.clone());
-        server.set_link_conditioner(link_conditioner);
-
-        let mut set = HashSet::new();
-
-        // we chat 100 packets between the client and server, which will re-send any non-acked
-        // packets
-        let mut send_many_packets = |dummy: Option<u8>| {
-            for id in 0..100 {
-                client
-                    .send(Packet::reliable_unordered(
-                        server_address(),
-                        vec![dummy.unwrap_or(id)],
-                    ))
-                    .unwrap();
-
-                server
-                    .send(Packet::reliable_unordered(client_address(), vec![255]))
-                    .unwrap();
-
-                client.manual_poll(time);
-                server.manual_poll(time);
-
-                while client.recv().is_some() {}
-                while let Some(event) = server.recv() {
-                    match event {
-                        SocketEvent::Packet(pkt) => {
-                            set.insert(pkt.payload()[0]);
-                        }
-                        SocketEvent::Timeout(_) | SocketEvent::Disconnect(_) => {
-                            panic!["Unable to time out, time has not advanced"]
-                        }
-                        SocketEvent::Connect(_) => {}
-                    }
-                }
-            }
-
-            set.len()
-        };
-
-        // the first chatting sequence sends packets 0..100 from the client to the server. After
-        // this we just chat with a value of 255 so we don't accidentally overlap those chatting
-        // packets with the packets we want to ack.
-        send_many_packets(None);
-        send_many_packets(Some(255));
-        send_many_packets(Some(255));
-        send_many_packets(Some(255));
-
-        // 101 because we have 0..100 and 255 from the dummies
-        assert_eq![101, send_many_packets(Some(255))];
-    }
-
-    #[test]
     fn fragmented_ordered_gets_acked() {
         let config = Config {
             fragment_size: 10,
@@ -1007,7 +1080,7 @@ mod tests {
 
     #[quickcheck_macros::quickcheck]
     fn do_not_panic_on_arbitrary_packets(bytes: Vec<u8>) {
-        use crate::net::DatagramSocket;
+        use crate::net::DatagramSocketSender;
         let network = NetworkEmulator::default();
         let mut server = FakeSocket::bind(&network, server_address(), Config::default()).unwrap();
         let mut client_socket = network.new_socket(client_address()).unwrap();

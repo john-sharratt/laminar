@@ -1,13 +1,13 @@
 use std::{
-    cell::RefCell, collections::{hash_map::Entry, HashMap, VecDeque}, io::Result, mem::MaybeUninit, rc::Rc
+    collections::{hash_map::Entry, HashMap, VecDeque}, io::Result, mem::MaybeUninit, sync::{Arc, Mutex}
 };
 
 use socket2::SockAddr;
 
-use crate::net::{DatagramSocket, LinkConditioner};
+use crate::{net::LinkConditioner, DatagramSocket, DatagramSocketReceiver, DatagramSocketSender};
 
 /// This type allows to share global state between all sockets, created from the same instance of `NetworkEmulator`.
-type GlobalBindings = Rc<RefCell<HashMap<SockAddr, VecDeque<(SockAddr, Vec<u8>)>>>>;
+type GlobalBindings = Arc<Mutex<HashMap<SockAddr, VecDeque<(SockAddr, Vec<u8>)>>>>;
 
 /// Enables to create the emulated socket, that share global state stored by this network emulator.
 #[derive(Debug, Default)]
@@ -19,7 +19,7 @@ impl NetworkEmulator {
     /// Creates an emulated socket by binding to an address.
     /// If other socket already was bound to this address, error will be returned instead.
     pub fn new_socket(&self, address: SockAddr) -> Result<EmulatedSocket> {
-        match self.network.borrow_mut().entry(address.clone()) {
+        match self.network.lock().unwrap().entry(address.clone()) {
             Entry::Occupied(_) => Err(std::io::Error::new(
                 std::io::ErrorKind::AddrInUse,
                 "Cannot bind to address",
@@ -37,7 +37,7 @@ impl NetworkEmulator {
 
     /// Clear all packets from a socket that is bound to provided address.
     pub fn clear_packets(&self, addr: SockAddr) {
-        if let Some(packets) = self.network.borrow_mut().get_mut(&addr) {
+        if let Some(packets) = self.network.lock().unwrap().get_mut(&addr) {
             packets.clear();
         }
     }
@@ -58,6 +58,17 @@ impl EmulatedSocket {
 }
 
 impl DatagramSocket for EmulatedSocket {
+    fn split(self) -> (Box<dyn DatagramSocketSender + Send + Sync>, Box<dyn DatagramSocketReceiver + Send + Sync>) {
+        (Box::new(self.clone()), Box::new(self))
+    }
+}
+
+impl DatagramSocketSender for EmulatedSocket {
+    /// Clones this emulated socket
+    fn clone_box(&self) -> Box<dyn DatagramSocketSender + Send + Sync> {
+        Box::new(self.clone())
+    }
+
     /// Sends a packet to and address if there is a socket bound to it. Otherwise it will simply be ignored.
     fn send_packet(&mut self, addr: &SockAddr, payload: &[u8]) -> Result<usize> {
         let send = if let Some(ref mut conditioner) = self.conditioner {
@@ -66,7 +77,7 @@ impl DatagramSocket for EmulatedSocket {
             true
         };
         if send {
-            if let Some(binded) = self.network.borrow_mut().get_mut(addr) {
+            if let Some(binded) = self.network.lock().unwrap().get_mut(addr) {
                 binded.push_back((self.address.clone(), payload.to_vec()));
             }
             Ok(payload.len())
@@ -85,7 +96,7 @@ impl DatagramSocket for EmulatedSocket {
         if send {
             let payload = bufs.iter().flat_map(|buf| buf.iter().copied()).collect::<Vec<u8>>();
             let payload_len= payload.len();
-            if let Some(binded) = self.network.borrow_mut().get_mut(addr) {
+            if let Some(binded) = self.network.lock().unwrap().get_mut(addr) {
                 binded.push_back((self.address.clone(), payload));
             }
             Ok(payload_len)
@@ -93,12 +104,15 @@ impl DatagramSocket for EmulatedSocket {
             Ok(0)
         }
     }
+}
 
+impl DatagramSocketReceiver for EmulatedSocket {
     /// Receives a packet from this socket.
     fn receive_packet<'a>(&mut self, buffer: &'a mut [MaybeUninit<u8>]) -> Result<(&'a [u8], SockAddr)> {
         if let Some((addr, payload)) = self
             .network
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .get_mut(&self.address)
             .unwrap()
             .pop_front()

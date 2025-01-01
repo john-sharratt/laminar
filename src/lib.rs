@@ -32,7 +32,7 @@
 pub use self::config::Config;
 pub use self::error::{ErrorKind, Result};
 pub use self::net::{
-    Connection, ConnectionManager, ConnectionMessenger, DatagramSocket, LinkConditioner, Socket,
+    Connection, ConnectionManager, ConnectionMessenger, DatagramSocket, DatagramSocketSender, DatagramSocketReceiver, LinkConditioner, Socket,
     SocketEvent, VirtualConnection,
     constants::PROTOCOL_VERSION
 };

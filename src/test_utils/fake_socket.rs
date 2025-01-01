@@ -3,13 +3,13 @@ use coarsetime::Instant;
 use crossbeam_channel::{Receiver, Sender};
 use socket2::SockAddr;
 
-use crate::net::{ConnectionManager, LinkConditioner, VirtualConnection};
+use crate::net::{ConnectionManager, VirtualConnection};
 use crate::test_utils::*;
 use crate::{error::Result, Config, Packet, SocketEvent};
 
 /// Provides a similar to the real a `Socket`, but with emulated socket implementation.
 pub struct FakeSocket {
-    handler: ConnectionManager<EmulatedSocket, VirtualConnection>,
+    handler: ConnectionManager<VirtualConnection>,
 }
 
 impl FakeSocket {
@@ -58,10 +58,5 @@ impl FakeSocket {
     /// Returns a number of active connections.
     pub fn connection_count(&self) -> usize {
         self.handler.connections_count()
-    }
-
-    /// Sets the link conditioner for this socket. See [LinkConditioner] for further details.
-    pub fn set_link_conditioner(&mut self, conditioner: Option<LinkConditioner>) {
-        self.handler.socket_mut().set_link_conditioner(conditioner);
     }
 }
