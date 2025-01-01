@@ -3,7 +3,7 @@ use std::{
 };
 use coarsetime::Instant;
 
-use crossbeam_channel::{self, Receiver, Sender, TryRecvError};
+use crossbeam_channel::{self, Receiver, TryRecvError};
 use socket2::SockAddr;
 
 use crate::{
@@ -15,7 +15,7 @@ use crate::{
     packet::Packet,
 };
 
-use super::{connection_manager::ConnectionManagerTx, DatagramSocketReceiver, DatagramSocketSender};
+use super::{connection_manager::ConnectionSender, DatagramSocketReceiver, DatagramSocketSender};
 
 fn create_socket(listen_addr: socket2::SockAddr) -> std::io::Result<socket2::Socket> {
     let socket = socket2::Socket::new(
@@ -263,8 +263,8 @@ impl Socket {
     /// Returns a handle to the packet sender which provides a thread-safe way to enqueue packets
     /// to be processed. This should be used when the socket is busy running its polling loop in a
     /// separate thread.
-    pub fn get_packet_sender(&self) -> Sender<Packet> {
-        self.handler.event_sender().clone()
+    pub fn get_packet_sender(&self) -> ConnectionSender<VirtualConnection> {
+        self.handler.event_sender()
     }
 
     /// Returns a handle to the event receiver which provides a thread-safe way to retrieve events
@@ -335,40 +335,14 @@ impl Socket {
 /// A reliable UDP socket implementation with configurable reliability and ordering guarantees.
 #[derive(Debug)]
 pub struct SocketTx {
-    handler: ConnectionManagerTx<VirtualConnection>,
+    handler: ConnectionSender<VirtualConnection>,
 }
 
 impl SocketTx {
     /// Sends a single packet
     pub fn send(&mut self, packet: Packet) -> Result<()> {
         self.handler
-            .send_packet(packet)?;
-        Ok(())
-    }
-
-    /// Runs the polling loop with the default '1ms' sleep duration. This should run in a spawned thread
-    /// since calls to `self.manual_poll` are blocking.
-    pub fn start_polling(&mut self) -> std::io::Result<()> {
-        self.start_polling_with_duration(Some(Duration::from_millis(1)))?;
-        Ok(())
-    }
-
-    /// Runs the polling loop with a specified sleep duration. This should run in a spawned thread
-    /// since calls to `self.manual_poll` are blocking.
-    pub fn start_polling_with_duration(&mut self, sleep_duration: Option<Duration>) -> std::io::Result<()> {
-        // nothing should break out of this loop!
-        loop {
-            self.manual_poll(Instant::now())?;
-            match sleep_duration {
-                None => yield_now(),
-                Some(duration) => sleep(duration),
-            };
-        }
-    }
-
-    /// Processes any inbound/outbound packets and handle idle clients
-    pub fn manual_poll(&mut self, time: Instant) -> std::io::Result<()> {
-        self.handler.manual_poll(time)?;
+            .send(packet)?;
         Ok(())
     }
 }

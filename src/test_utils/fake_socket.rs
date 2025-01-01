@@ -1,10 +1,10 @@
 use coarsetime::Instant;
 
-use crossbeam_channel::{Receiver, Sender};
+use crossbeam_channel::Receiver;
 use socket2::SockAddr;
 
 use crate::net::{ConnectionManager, VirtualConnection};
-use crate::test_utils::*;
+use crate::{test_utils::*, ConnectionSender};
 use crate::{error::Result, Config, Packet, SocketEvent};
 
 /// Provides a similar to the real a `Socket`, but with emulated socket implementation.
@@ -23,8 +23,8 @@ impl FakeSocket {
     /// Returns a handle to the packet sender which provides a thread-safe way to enqueue packets
     /// to be processed. This should be used when the socket is busy running its polling loop in a
     /// separate thread.
-    pub fn get_packet_sender(&self) -> Sender<Packet> {
-        self.handler.event_sender().clone()
+    pub fn get_packet_sender(&self) -> ConnectionSender<VirtualConnection> {
+        self.handler.event_sender()
     }
 
     /// Returns a handle to the event receiver which provides a thread-safe way to retrieve events

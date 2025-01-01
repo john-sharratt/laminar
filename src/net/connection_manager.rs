@@ -1,12 +1,12 @@
 use std::{self, collections::HashMap, fmt::Debug, io::{IoSlice, Result}, mem::MaybeUninit, ops::{Deref, DerefMut}, sync::{Arc, Mutex}};
 use coarsetime::Instant;
 
-use crossbeam_channel::{self, unbounded, Receiver, Sender, TryRecvError};
+use crossbeam_channel::{self, unbounded, Receiver, Sender};
 use log::error;
 use socket2::SockAddr;
 
 use crate::{
-    config::Config, net::{Connection, ConnectionEventAddress, ConnectionMessenger}, Packet,
+    config::Config, net::{Connection, ConnectionEventAddress, ConnectionMessenger},
 };
 
 // TODO: maybe we can make a breaking change and use this instead of `ConnectionEventAddress` trait?
@@ -103,16 +103,14 @@ pub struct ConnectionManager<TConnection: Connection> {
     receive_buffer: Vec<MaybeUninit<u8>>,
     event_receiver: Receiver<TConnection::ReceiveEvent>,
     max_unestablished_connections: u16,
-    user_event_sender: Sender<TConnection::SendEvent>,
     rx: Box<dyn DatagramSocketReceiver + Send + Sync>,
-    tx: ConnectionManagerTx<TConnection>,
+    tx: ConnectionSender<TConnection>,
 }
 
 impl<TConnection: Connection> ConnectionManager<TConnection> {
     /// Creates an instance of `ConnectionManager` by passing a socket and config.
     pub fn new<TSocket: DatagramSocket>(socket: TSocket, config: Config) -> Self {
         let (event_sender, event_receiver) = unbounded();
-        let (user_event_sender, user_event_receiver) = unbounded();
         let max_unestablished_connections = config.max_unestablished_connections;
 
         let (tx, rx) = socket.split();
@@ -122,20 +120,18 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
             receive_buffer: vec![MaybeUninit::uninit(); config.receive_buffer_max_size],
             connections: connections.clone(),
             rx,
-            user_event_sender,
             event_receiver: event_receiver.clone(),
             max_unestablished_connections,
-            tx: ConnectionManagerTx {
+            tx: ConnectionSender {
                 connections: Default::default(),
                 tx: SocketEventSenderAndConfig::new(config.clone(), tx, event_sender),
                 event_receiver,
-                user_event_receiver,
             },
         }
     }
 
     /// Splits the `ConnectionManager` into two parts: the `ConnectionManagerSender` and the `ConnectionManager`.
-    pub fn split(self) -> (ConnectionManagerTx<TConnection>, Self) {
+    pub fn split(self) -> (ConnectionSender<TConnection>, Self) {
         (
             self.tx.clone(),
             self,
@@ -157,7 +153,7 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
                         let was_est = conn.is_established();
                         conn.process_packet(messenger, payload, time);
                         if !was_est && conn.is_established() {
-                            unestablished_connections -= 1;
+                            unestablished_connections = unestablished_connections.saturating_sub(1);
                         }
                     } else {
                         let mut conn = TConnection::create_connection(messenger, address.clone(), time);
@@ -197,12 +193,6 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
         Ok(())
     }
 
-    /// Processes any outbound packets and events.
-    pub fn manual_poll_outbound(&mut self, time: Instant) -> std::io::Result<()> {
-        self.tx.manual_poll_outbound(time)?;
-        Ok(())
-    }
-
     /// Processes connection specific logic for active connections.
     /// Removes dropped connections from active connections list.
     pub fn manual_poll_update(&mut self, time: Instant) {
@@ -225,7 +215,6 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
     /// Removes dropped connections from active connections list.
     pub fn manual_poll(&mut self, time: Instant) -> std::io::Result<()> {
         self.manual_poll_inbound(time)?;
-        self.manual_poll_outbound(time)?;
         self.manual_poll_update(time);
         Ok(())
     }
@@ -233,8 +222,8 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
     /// Returns a handle to the event sender which provides a thread-safe way to enqueue user events
     /// to be processed. This should be used when the socket is busy running its polling loop in a
     /// separate thread.
-    pub fn event_sender(&self) -> &Sender<TConnection::SendEvent> {
-        &self.user_event_sender
+    pub fn event_sender(&self) -> ConnectionSender<TConnection> {
+        self.tx.clone()
     }
 
     /// Returns a handle to the event receiver which provides a thread-safe way to retrieve events
@@ -286,79 +275,35 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
 /// Connection capabilities depends on what is an actual `Connection` type.
 /// Connection type also defines a type of sending and receiving events.
 #[derive(Debug)]
-pub struct ConnectionManagerTx<TConnection: Connection> {
-    connections: Arc<Mutex<HashMap<SockAddr, TConnection>>>,
-    user_event_receiver: Receiver<TConnection::SendEvent>,
+pub struct ConnectionSender<TConnection: Connection> {
     tx: SocketEventSenderAndConfig<TConnection::ReceiveEvent>,
+    connections: Arc<Mutex<HashMap<SockAddr, TConnection>>>,
     event_receiver: Receiver<TConnection::ReceiveEvent>,
 }
 
 impl<TConnection: Connection> Clone
-for ConnectionManagerTx<TConnection> {
+for ConnectionSender<TConnection> {
     fn clone(&self) -> Self {
         Self {
             connections: self.connections.clone(),
             tx: self.tx.clone(),
             event_receiver: self.event_receiver.clone(),
-            user_event_receiver: self.user_event_receiver.clone(),
         }
     }
 }
 
-impl<TConnection: Connection> ConnectionManagerTx<TConnection> {
+impl<TConnection: Connection> ConnectionSender<TConnection> {
     /// Sends a single packet to the socket.
-    pub fn send_packet(&mut self, packet: Packet) -> Result<()> {
-        self.tx.send_packet(&packet.addr(), packet.payload())?;
-        Ok(())
-    }
-
-    /// Processes any outbound packets and events.
-    pub fn manual_poll_outbound(&mut self, time: Instant) -> std::io::Result<()> {
+    pub fn send(&mut self, event: TConnection::SendEvent) -> Result<()> {
         let messenger = &mut self.tx;
-
-        // now grab all the waiting packets and send them
-        loop {
-            match self.user_event_receiver.try_recv() {
-                Ok(event) => {
-                    // get or create connection
-                    let mut connections = self.connections.lock().unwrap();
-                    let conn = connections.entry(event.address()).or_insert_with(|| {
-                        TConnection::create_connection(messenger, event.address(), time)
-                    });
-                    conn.process_event(messenger, event, time);
-                },
-                Err(TryRecvError::Empty) => break,
-                Err(TryRecvError::Disconnected) => {
-                    return Err(std::io::Error::new(std::io::ErrorKind::Other, "User event receiver disconnected"));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Processes connection specific logic for active connections.
-    /// Removes dropped connections from active connections list.
-    pub fn manual_poll_update(&mut self, time: Instant) {
-        let messenger = &mut self.tx;
-
-        // update all connections
-        for conn in self.connections.lock().unwrap().values_mut() {
-            conn.update(messenger, time);
-        }
-
-        // iterate through all connections and remove those that should be dropped
-        self.connections
-            .lock()
-            .unwrap()
-            .retain(|_, conn| !conn.should_drop(messenger, time));
-    }
-
-    /// Processes any inbound/outbound packets and events.
-    /// Processes connection specific logic for active connections.
-    /// Removes dropped connections from active connections list.
-    pub fn manual_poll(&mut self, time: Instant) -> std::io::Result<()> {
-        self.manual_poll_outbound(time)?;
-        self.manual_poll_update(time);
+        let time = Instant::now();
+        
+        // get or create connection
+        let mut connections = self.connections.lock().unwrap();
+        let conn = connections.entry(event.address()).or_insert_with(|| {
+            TConnection::create_connection(messenger, event.address(), time)
+        });
+        conn.process_event(messenger, event, time);
         Ok(())
     }
 
@@ -437,7 +382,7 @@ mod tests {
     fn using_sender_and_receiver() {
         let (mut server, mut client, _) = create_server_client_network();
 
-        let sender = client.get_packet_sender();
+        let mut sender = client.get_packet_sender();
         let receiver = server.get_event_receiver();
 
         sender
