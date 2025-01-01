@@ -103,12 +103,10 @@ impl<ReceiveEvent: Debug> ConnectionMessenger<ReceiveEvent>
 pub struct ConnectionManager<TConnection: Connection> {
     connections: Arc<Mutex<HashMap<SockAddr, TConnection>>>,
     receive_buffer: Vec<MaybeUninit<u8>>,
-    user_event_receiver: Receiver<TConnection::SendEvent>,
-    tx: SocketEventSenderAndConfig<TConnection::ReceiveEvent>,
-    rx: Box<dyn DatagramSocketReceiver + Send + Sync>,
     event_receiver: Receiver<TConnection::ReceiveEvent>,
-    user_event_sender: Sender<TConnection::SendEvent>,
     max_unestablished_connections: u16,
+    rx: Box<dyn DatagramSocketReceiver + Send + Sync>,
+    tx: ConnectionManagerTx<TConnection>,
 }
 
 impl<TConnection: Connection> ConnectionManager<TConnection> {
@@ -120,36 +118,35 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
 
         let (tx, rx) = socket.split();
 
+        let connections = Arc::new(Mutex::new(HashMap::new()));
         ConnectionManager {
             receive_buffer: vec![MaybeUninit::uninit(); config.receive_buffer_max_size],
-            connections: Default::default(),
-            user_event_receiver,
-            tx: SocketEventSenderAndConfig::new(config, tx, event_sender),
+            connections: connections.clone(),
             rx,
-            user_event_sender,
-            event_receiver,
+            event_receiver: event_receiver.clone(),
             max_unestablished_connections,
+            tx: ConnectionManagerTx {
+                connections: Default::default(),
+                tx: SocketEventSenderAndConfig::new(config.clone(), tx, event_sender),
+                event_receiver,
+                user_event_receiver,
+                user_event_sender,
+            },
         }
     }
 
     /// Splits the `ConnectionManager` into two parts: the `ConnectionManagerSender` and the `ConnectionManager`.
     pub fn split(self) -> (ConnectionManagerTx<TConnection>, Self) {
         (
-            ConnectionManagerTx {
-                connections: self.connections.clone(),
-                user_event_receiver: self.user_event_receiver.clone(),
-                tx: self.tx.clone(),
-                event_receiver: self.event_receiver.clone(),
-                user_event_sender: self.user_event_sender.clone(),
-            },
+            self.tx.clone(),
             self,
         )
     }
 
     /// Processes any inbound packets and events.
-    pub fn manual_poll_inbound(&mut self, time: Instant) {
+    pub fn manual_poll_inbound(&mut self, time: Instant) -> std::io::Result<()> {
         let mut unestablished_connections = self.unestablished_connection_count();
-        let messenger = &mut self.tx;
+        let messenger = &mut self.tx.tx;
 
         // first we pull all newly arrived packets and handle them
         loop {
@@ -179,7 +176,13 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
                     // this is triggered whenever a packet is sent using the same socket
                     // as it will unblock the blocking action of receiving data
                     continue;
-                }   
+                }
+                Err(e) if e.raw_os_error() == Some(10004) => {
+                    return Err(e);
+                }
+                Err(e) if e.raw_os_error() == Some(10093) => {
+                    return Err(e);
+                }
                 Err(e) => {
                     if e.kind() != std::io::ErrorKind::WouldBlock {
                         error!("Encountered an error receiving data: {:?}", e);
@@ -192,27 +195,18 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
                 break;
             }
         }
+        Ok(())
     }
 
     /// Processes any outbound packets and events.
     pub fn manual_poll_outbound(&mut self, time: Instant) {
-        let messenger = &mut self.tx;
-
-        // now grab all the waiting packets and send them
-        while let Ok(event) = self.user_event_receiver.try_recv() {
-            // get or create connection
-            let mut connections = self.connections.lock().unwrap();
-            let conn = connections.entry(event.address()).or_insert_with(|| {
-                TConnection::create_connection(messenger, event.address(), time)
-            });
-            conn.process_event(messenger, event, time);
-        }
+        self.tx.manual_poll_outbound(time);
     }
 
     /// Processes connection specific logic for active connections.
     /// Removes dropped connections from active connections list.
     pub fn manual_poll_update(&mut self, time: Instant) {
-        let messenger = &mut self.tx;
+        let messenger = &mut self.tx.tx;
 
         // update all connections
         for conn in self.connections.lock().unwrap().values_mut() {
@@ -229,17 +223,18 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
     /// Processes any inbound/outbound packets and events.
     /// Processes connection specific logic for active connections.
     /// Removes dropped connections from active connections list.
-    pub fn manual_poll(&mut self, time: Instant) {
-        self.manual_poll_inbound(time);
+    pub fn manual_poll(&mut self, time: Instant) -> std::io::Result<()> {
+        self.manual_poll_inbound(time)?;
         self.manual_poll_outbound(time);
         self.manual_poll_update(time);
+        Ok(())
     }
 
     /// Returns a handle to the event sender which provides a thread-safe way to enqueue user events
     /// to be processed. This should be used when the socket is busy running its polling loop in a
     /// separate thread.
     pub fn event_sender(&self) -> &Sender<TConnection::SendEvent> {
-        &self.user_event_sender
+        self.tx.event_sender()
     }
 
     /// Returns a handle to the event receiver which provides a thread-safe way to retrieve events
@@ -256,7 +251,7 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
 
     /// Returns socket reference.
     pub fn socket_tx(&self) -> &(dyn DatagramSocketSender) {
-        self.tx.socket.deref()
+        self.tx.socket()
     }
 
     fn unestablished_connection_count(&self) -> usize {
@@ -277,7 +272,7 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
     /// Returns socket mutable reference.
     #[allow(dead_code)]
     pub fn socket_tx_mut(&mut self) -> &mut (dyn DatagramSocketSender) {
-        self.tx.socket.deref_mut()
+        self.tx.socket_mut()
     }
 
     /// Returns a number of active connections.
@@ -293,10 +288,23 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
 #[derive(Debug)]
 pub struct ConnectionManagerTx<TConnection: Connection> {
     connections: Arc<Mutex<HashMap<SockAddr, TConnection>>>,
+    user_event_sender: Sender<TConnection::SendEvent>,
     user_event_receiver: Receiver<TConnection::SendEvent>,
     tx: SocketEventSenderAndConfig<TConnection::ReceiveEvent>,
     event_receiver: Receiver<TConnection::ReceiveEvent>,
-    user_event_sender: Sender<TConnection::SendEvent>,
+}
+
+impl<TConnection: Connection> Clone
+for ConnectionManagerTx<TConnection> {
+    fn clone(&self) -> Self {
+        Self {
+            connections: self.connections.clone(),
+            tx: self.tx.clone(),
+            event_receiver: self.event_receiver.clone(),
+            user_event_receiver: self.user_event_receiver.clone(),
+            user_event_sender: self.user_event_sender.clone(),
+        }
+    }
 }
 
 impl<TConnection: Connection> ConnectionManagerTx<TConnection> {
