@@ -41,6 +41,7 @@ pub use self::packet::{DeliveryGuarantee, OrderingGuarantee, Packet};
 pub use self::throughput::ThroughputMonitoring;
 pub use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 pub use coarsetime::{Duration, Instant};
+pub use socket2;
 
 
 mod config;

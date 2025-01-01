@@ -1,12 +1,10 @@
 use std::{
-    self,
-    net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs, UdpSocket},
-    thread::{sleep, yield_now},
-    time::Duration,
+    self, io::IoSlice, mem::MaybeUninit, net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs}, thread::{sleep, yield_now}, time::Duration
 };
 use coarsetime::Instant;
 
 use crossbeam_channel::{self, Receiver, Sender, TryRecvError};
+use socket2::SockAddr;
 
 use crate::{
     config::Config,
@@ -17,20 +15,38 @@ use crate::{
     packet::Packet,
 };
 
+fn create_socket(listen_addr: socket2::SockAddr) -> std::io::Result<socket2::Socket> {
+    let socket = socket2::Socket::new(
+        match listen_addr.is_ipv4() {
+            true => socket2::Domain::IPV4,
+            false => socket2::Domain::IPV6,
+        },
+        socket2::Type::DGRAM,
+        Some(socket2::Protocol::UDP),
+    )?;
+    socket.set_nodelay(true).ok();
+    socket.set_reuse_address(true).unwrap();
+    socket.bind(&listen_addr.clone()).unwrap();
+    Ok(socket)
+}
+
 // Wraps `LinkConditioner` and `UdpSocket` together. LinkConditioner is enabled when building with a "tester" feature.
 #[derive(Debug)]
 struct SocketWithConditioner {
     is_blocking_mode: bool,
-    socket: UdpSocket,
+    socket_tx: socket2::Socket,
+    socket_rx: socket2::Socket,
     link_conditioner: Option<LinkConditioner>,
 }
 
 impl SocketWithConditioner {
-    pub fn new(socket: UdpSocket, is_blocking_mode: bool) -> Result<Self> {
-        socket.set_nonblocking(!is_blocking_mode)?;
+    pub fn new(socket: socket2::Socket, is_blocking_mode: bool) -> Result<Self> {
+        let socket_tx = create_socket(socket.local_addr()?)?;
+        let socket_rx = socket;         
         Ok(SocketWithConditioner {
             is_blocking_mode,
-            socket,
+            socket_rx,
+            socket_tx,
             link_conditioner: None,
         })
     }
@@ -44,7 +60,7 @@ impl SocketWithConditioner {
 /// Provides a `DatagramSocket` implementation for `SocketWithConditioner`
 impl DatagramSocket for SocketWithConditioner {
     // Determinate whether packet will be sent or not based on `LinkConditioner` if enabled.
-    fn send_packet(&mut self, addr: &SocketAddr, payload: &[u8]) -> std::io::Result<usize> {
+    fn send_packet(&mut self, addr: &SockAddr, payload: &[u8]) -> std::io::Result<usize> {
         if cfg!(feature = "tester") {
             if let Some(ref mut link) = &mut self.link_conditioner {
                 if !link.should_send() {
@@ -52,22 +68,37 @@ impl DatagramSocket for SocketWithConditioner {
                 }
             }
         }
-        self.socket.send_to(payload, addr)
+        self.socket_tx.send_to(payload, addr)
+    }
+
+    // Determinate whether packet will be sent or not based on `LinkConditioner` if enabled.
+    fn send_packet_vectored(&mut self, addr: &SockAddr, bufs: &[IoSlice<'_>]) -> std::io::Result<usize> {
+        if cfg!(feature = "tester") {
+            if let Some(ref mut link) = &mut self.link_conditioner {
+                if !link.should_send() {
+                    return Ok(0);
+                }
+            }
+        }
+        self.socket_tx.send_to_vectored(bufs, addr)
     }
 
     /// Receives a single packet from UDP socket.
     fn receive_packet<'a>(
         &mut self,
-        buffer: &'a mut [u8],
-    ) -> std::io::Result<(&'a [u8], SocketAddr)> {
-        self.socket
+        buffer: &'a mut [MaybeUninit<u8>],
+    ) -> std::io::Result<(&'a [u8], SockAddr)> {
+        self.socket_rx
             .recv_from(buffer)
-            .map(move |(recv_len, address)| (&buffer[..recv_len], address))
+            .map(move |(recv_len, address)| {
+                let buffer = unsafe { std::mem::transmute(&buffer[..recv_len]) };
+                (buffer, address)
+            })
     }
 
     /// Returns the socket address that this socket was created from.
-    fn local_addr(&self) -> std::io::Result<SocketAddr> {
-        self.socket.local_addr()
+    fn local_addr(&self) -> std::io::Result<SockAddr> {
+        self.socket_rx.local_addr()
     }
 
     /// Returns whether socket operates in blocking or non-blocking mode.
@@ -99,7 +130,7 @@ impl Socket {
     pub fn bind_any_with_config(config: Config) -> Result<Self> {
         let loopback = Ipv4Addr::new(127, 0, 0, 1);
         let address = SocketAddrV4::new(loopback, 0);
-        let socket = UdpSocket::bind(address)?;
+        let socket = create_socket(address.into())?;
         Self::bind_internal(socket, config)
     }
 
@@ -109,11 +140,12 @@ impl Socket {
     ///
     /// This function allows you to configure laminar with the passed configuration.
     pub fn bind_with_config<A: ToSocketAddrs>(addresses: A, config: Config) -> Result<Self> {
-        let socket = UdpSocket::bind(addresses)?;
+        let address: SocketAddr = addresses.to_socket_addrs()?.next().unwrap();
+        let socket = create_socket(address.into())?;
         Self::bind_internal(socket, config)
     }
 
-    fn bind_internal(socket: UdpSocket, config: Config) -> Result<Self> {
+    fn bind_internal(socket: socket2::Socket, config: Config) -> Result<Self> {
         Ok(Socket {
             handler: ConnectionManager::new(
                 SocketWithConditioner::new(socket, config.blocking_mode)?,
@@ -179,7 +211,7 @@ impl Socket {
     }
 
     /// Returns the local socket address
-    pub fn local_addr(&self) -> Result<SocketAddr> {
+    pub fn local_addr(&self) -> Result<SockAddr> {
         Ok(self.handler.socket().local_addr()?)
     }
 

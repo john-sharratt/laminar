@@ -7,6 +7,10 @@ use crate::net::constants::{DEFAULT_MTU, FRAGMENT_SIZE_DEFAULT, MAX_FRAGMENTS_DE
 pub struct Config {
     /// Make the underlying UDP socket block when true, otherwise non-blocking.
     pub blocking_mode: bool,
+    /// Determines if no_delay is set on the socket.
+    pub no_delay: bool,
+    /// Determines if reuse_address is set on the socket.
+    pub reuse_address: bool,
     /// Value which can specify the amount of time that can pass without hearing from a client before considering them disconnected.
     pub idle_connection_timeout: Duration,
     /// Value which specifies at which interval (if at all) a heartbeat should be sent, if no other packet was sent in the meantime.
@@ -23,7 +27,7 @@ pub struct Config {
     /// Use TCP instead (later we will probably support larger ranges but every fragment packet then needs to be resent if it doesn't get an acknowledgment).
     ///
     /// default: 16 but keep in mind that lower is better.
-    pub max_fragments: u8,
+    pub max_fragments: u16,
     /// Value which can specify the size of a fragment.
     ///
     /// This is the maximum size of each fragment. It defaults to `1450` bytes, due to the default MTU on most network devices being `1500`.
@@ -65,10 +69,12 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             blocking_mode: false,
+            no_delay: true,
+            reuse_address: true,
             idle_connection_timeout: Duration::from_secs(5),
             heartbeat_interval: None,
             max_packet_size: (MAX_FRAGMENTS_DEFAULT * FRAGMENT_SIZE_DEFAULT) as usize,
-            max_fragments: MAX_FRAGMENTS_DEFAULT as u8,
+            max_fragments: MAX_FRAGMENTS_DEFAULT as u16,
             fragment_size: FRAGMENT_SIZE_DEFAULT,
             fragment_reassembly_buffer_size: 64,
             receive_buffer_max_size: DEFAULT_MTU as usize,

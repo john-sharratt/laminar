@@ -1,7 +1,7 @@
-use std::net::SocketAddr;
 use coarsetime::Instant;
 
 use crossbeam_channel::{Receiver, Sender};
+use socket2::SockAddr;
 
 use crate::net::{ConnectionManager, LinkConditioner, VirtualConnection};
 use crate::test_utils::*;
@@ -14,7 +14,7 @@ pub struct FakeSocket {
 
 impl FakeSocket {
     /// Binds to the socket.
-    pub fn bind(network: &NetworkEmulator, addr: SocketAddr, config: Config) -> Result<Self> {
+    pub fn bind(network: &NetworkEmulator, addr: SockAddr, config: Config) -> Result<Self> {
         Ok(Self {
             handler: ConnectionManager::new(network.new_socket(addr)?, config),
         })

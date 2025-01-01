@@ -1,7 +1,7 @@
-use std::net::SocketAddr;
 use coarsetime::Instant;
 
 use log::error;
+use socket2::SockAddr;
 
 use crate::error::{ErrorKind, Result};
 use crate::packet::{DeliveryGuarantee, OutgoingPackets, Packet, PacketInfo};
@@ -13,12 +13,12 @@ use super::{
 /// Required by `ConnectionManager` to properly handle connection event.
 impl ConnectionEventAddress for SocketEvent {
     /// Returns event address.
-    fn address(&self) -> SocketAddr {
+    fn address(&self) -> SockAddr {
         match self {
             SocketEvent::Packet(packet) => packet.addr(),
-            SocketEvent::Connect(addr) => *addr,
-            SocketEvent::Timeout(addr) => *addr,
-            SocketEvent::Disconnect(addr) => *addr,
+            SocketEvent::Connect(addr) => addr.clone(),
+            SocketEvent::Timeout(addr) => addr.clone(),
+            SocketEvent::Disconnect(addr) => addr.clone(),
         }
     }
 }
@@ -26,7 +26,7 @@ impl ConnectionEventAddress for SocketEvent {
 /// Required by `ConnectionManager` to properly handle user event.
 impl ConnectionEventAddress for Packet {
     /// Returns event address.
-    fn address(&self) -> SocketAddr {
+    fn address(&self) -> SockAddr {
         self.addr()
     }
 }
@@ -43,7 +43,7 @@ impl Connection for VirtualConnection {
     /// * initial_data - if initiated by remote host, this will hold that a packet data.
     fn create_connection(
         messenger: &mut impl ConnectionMessenger<Self::ReceiveEvent>,
-        address: SocketAddr,
+        address: SockAddr,
         time: Instant,
     ) -> VirtualConnection {
         VirtualConnection::new(address, messenger.config(), time)
@@ -65,12 +65,12 @@ impl Connection for VirtualConnection {
         if should_drop {
             messenger.send_event(
                 &self.remote_address,
-                SocketEvent::Timeout(self.remote_address),
+                SocketEvent::Timeout(self.remote_address.clone()),
             );
             if self.is_established() {
                 messenger.send_event(
                     &self.remote_address,
-                    SocketEvent::Disconnect(self.remote_address),
+                    SocketEvent::Disconnect(self.remote_address.clone()),
                 );
             }
         }
@@ -90,7 +90,7 @@ impl Connection for VirtualConnection {
                     if self.record_recv() {
                         messenger.send_event(
                             &self.remote_address,
-                            SocketEvent::Connect(self.remote_address),
+                            SocketEvent::Connect(self.remote_address.clone()),
                         );
                     }
 
@@ -115,9 +115,9 @@ impl Connection for VirtualConnection {
         event: Self::SendEvent,
         time: Instant,
     ) {
-        let addr = self.remote_address;
+        let addr = self.remote_address.clone();
         if self.record_send() {
-            messenger.send_event(&addr, SocketEvent::Connect(addr));
+            messenger.send_event(&addr, SocketEvent::Connect(addr.clone()));
         }
 
         send_packets(
@@ -163,7 +163,7 @@ impl Connection for VirtualConnection {
         // send heartbeat packets if required
         if self.is_established() {
             if let Some(heartbeat_interval) = messenger.config().heartbeat_interval {
-                let addr = self.remote_address;
+                let addr = self.remote_address.clone();
                 if self.last_sent(time) >= heartbeat_interval {
                     send_packets(
                         messenger,
@@ -180,7 +180,7 @@ impl Connection for VirtualConnection {
 // Sends multiple outgoing packets.
 fn send_packets(
     ctx: &mut impl ConnectionMessenger<SocketEvent>,
-    address: &SocketAddr,
+    address: &SockAddr,
     packets: Result<OutgoingPackets<'_>>,
     err_context: &str,
 ) {

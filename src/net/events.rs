@@ -1,5 +1,4 @@
-use std::net::SocketAddr;
-
+use socket2::SockAddr;
 use crate::packet::Packet;
 
 /// Events that can occur in `laminar` and that will be pushed through the `event_receiver` returned by `Socket::bind`.
@@ -14,10 +13,10 @@ pub enum SocketEvent {
     /// Packet from a new client.
     ///
     /// Clients are uniquely identified by the `ip:port` combination at this layer.
-    Connect(SocketAddr),
+    Connect(SockAddr),
     /// The client has been idling for longer than the `idle_connection_timeout` time.
     /// You can control the timeout in the config.
-    Timeout(SocketAddr),
+    Timeout(SockAddr),
     /// The established connection to a client has timed out.
-    Disconnect(SocketAddr),
+    Disconnect(SockAddr),
 }

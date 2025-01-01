@@ -5,6 +5,7 @@
 use std::net::SocketAddr;
 
 use laminar::{Packet, Result, Socket, SocketEvent};
+use socket2::SockAddr;
 
 /// The socket address of where the server is located.
 const SERVER_ADDR: &str = "127.0.0.1:12345";
@@ -40,7 +41,7 @@ pub fn receive_data() {
         if let Some(result) = socket.recv() {
             match result {
                 SocketEvent::Packet(packet) => {
-                    let endpoint: SocketAddr = packet.addr();
+                    let endpoint: SockAddr = packet.addr();
                     let received_data: &[u8] = packet.payload();
 
                     // you can here deserialize your bytes into the data you have passed it when sending.
@@ -67,7 +68,7 @@ pub fn construct_packet() -> Packet {
     let raw_data = "example data".as_bytes();
 
     // lets construct or packet by passing in the destination for this packet and the bytes needed to be send..
-    let packet: Packet = Packet::reliable_unordered(destination, raw_data.to_owned());
+    let packet: Packet = Packet::reliable_unordered(destination.into(), raw_data.to_owned());
 
     packet
 }

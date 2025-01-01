@@ -1,11 +1,12 @@
 //! Note that the terms "client" and "server" here are purely what we logically associate with them.
 //! Technically, they both work the same.
 //! Note that in practice you don't want to implement a chat client using UDP.
-use std::io::stdin;
+use std::{io::stdin, net::SocketAddr};
 use std::thread;
 use coarsetime::Instant;
 
 use laminar::{ErrorKind, Packet, Socket, SocketEvent};
+use socket2::SockAddr;
 
 const SERVER: &str = "127.0.0.1:12351";
 
@@ -25,9 +26,8 @@ fn server() -> Result<(), ErrorKind> {
                     }
 
                     let msg = String::from_utf8_lossy(msg);
-                    let ip = packet.addr().ip();
-
-                    println!("Received {:?} from {:?}", msg, ip);
+                    
+                    println!("Received {:?} from {:?}", msg, packet.addr());
 
                     sender
                         .send(Packet::reliable_unordered(
@@ -37,7 +37,7 @@ fn server() -> Result<(), ErrorKind> {
                         .expect("This should send");
                 }
                 SocketEvent::Timeout(address) => {
-                    println!("Client timed out: {}", address);
+                    println!("Client timed out: {:?}", address);
                 }
                 _ => {}
             }
@@ -52,7 +52,8 @@ fn client() -> Result<(), ErrorKind> {
     let mut socket = Socket::bind(addr)?;
     println!("Connected on {}", addr);
 
-    let server = SERVER.parse().unwrap();
+    let server: SocketAddr = SERVER.parse().unwrap();
+    let server: SockAddr = server.into();
 
     println!("Type a message and press Enter to send. Send `Bye!` to quit.");
 
@@ -65,7 +66,7 @@ fn client() -> Result<(), ErrorKind> {
         let line = s_buffer.replace(|x| x == '\n' || x == '\r', "");
 
         socket.send(Packet::reliable_unordered(
-            server,
+            server.clone(),
             line.clone().into_bytes(),
         ))?;
 

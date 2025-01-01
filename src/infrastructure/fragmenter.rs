@@ -68,7 +68,7 @@ impl Fragmentation {
         let payload_length = payload.len() as u16;
         let num_fragments =
             // Safe cast max fragments is u8
-            Fragmentation::fragments_needed(payload_length, config.fragment_size) as u8;
+            Fragmentation::fragments_needed(payload_length, config.fragment_size) as u16;
 
         if num_fragments > config.max_fragments {
             return Err(FragmentErrorKind::ExceededMaxFragments.into());

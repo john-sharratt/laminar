@@ -27,6 +27,7 @@ log = "0.4"
 rand = "0.8"
 rand_pcg = "0.3"
 coarsetime = "0.1"
+socket2 = "0.5"
 
 clap = { version = "4.4", optional = true }
 env_logger = { version = "0.10", optional = true }

@@ -1,8 +1,9 @@
-use std::{self, collections::HashMap, fmt::Debug, io::Result, net::SocketAddr};
+use std::{self, collections::HashMap, fmt::Debug, io::{IoSlice, Result}, mem::MaybeUninit};
 use coarsetime::Instant;
 
 use crossbeam_channel::{self, unbounded, Receiver, Sender};
 use log::error;
+use socket2::SockAddr;
 
 use crate::{
     config::Config, net::Connection, net::ConnectionEventAddress, net::ConnectionMessenger,
@@ -15,13 +16,16 @@ use crate::{
 /// A datagram socket is a type of network socket which provides a connectionless point for sending or receiving data packets.
 pub trait DatagramSocket: Debug {
     /// Sends a single packet to the socket.
-    fn send_packet(&mut self, addr: &SocketAddr, payload: &[u8]) -> Result<usize>;
+    fn send_packet(&mut self, addr: &SockAddr, payload: &[u8]) -> Result<usize>;
+
+    /// Sends a single packet made up of multiple buffers to the socket.
+    fn send_packet_vectored(&mut self, addr: &SockAddr, bufs: &[IoSlice<'_>]) -> std::io::Result<usize>;
 
     /// Receives a single packet from the socket.
-    fn receive_packet<'a>(&mut self, buffer: &'a mut [u8]) -> Result<(&'a [u8], SocketAddr)>;
+    fn receive_packet<'a>(&mut self, buffer: &'a mut [MaybeUninit<u8>]) -> Result<(&'a [u8], SockAddr)>;
 
     /// Returns the socket address that this socket was created from.
-    fn local_addr(&self) -> Result<SocketAddr>;
+    fn local_addr(&self) -> Result<SockAddr>;
 
     /// Returns whether socket operates in blocking or non-blocking mode.
     fn is_blocking_mode(&self) -> bool;
@@ -54,13 +58,19 @@ impl<TSocket: DatagramSocket, ReceiveEvent: Debug> ConnectionMessenger<ReceiveEv
         &self.config
     }
 
-    fn send_event(&mut self, _address: &SocketAddr, event: ReceiveEvent) {
+    fn send_event(&mut self, _address: &SockAddr, event: ReceiveEvent) {
         self.event_sender.send(event).expect("Receiver must exists");
     }
 
-    fn send_packet(&mut self, address: &SocketAddr, payload: &[u8]) {
+    fn send_packet(&mut self, address: &SockAddr, payload: &[u8]) {
         if let Err(err) = self.socket.send_packet(address, payload) {
-            error!("Error occured sending a packet (to {}): {}", address, err)
+            error!("Error occured sending a packet (to {:?}): {}", address, err)
+        }
+    }
+
+    fn send_packet_vectored(&mut self, address: &SockAddr, bufs: &[IoSlice<'_>]) {
+        if let Err(err) = self.socket.send_packet_vectored(address, bufs) {
+            error!("Error occured sending a packet (to {:?}): {}", address, err)
         }
     }
 }
@@ -70,8 +80,8 @@ impl<TSocket: DatagramSocket, ReceiveEvent: Debug> ConnectionMessenger<ReceiveEv
 /// Connection type also defines a type of sending and receiving events.
 #[derive(Debug)]
 pub struct ConnectionManager<TSocket: DatagramSocket, TConnection: Connection> {
-    connections: HashMap<SocketAddr, TConnection>,
-    receive_buffer: Vec<u8>,
+    connections: HashMap<SockAddr, TConnection>,
+    receive_buffer: Vec<MaybeUninit<u8>>,
     user_event_receiver: Receiver<TConnection::SendEvent>,
     messenger: SocketEventSenderAndConfig<TSocket, TConnection::ReceiveEvent>,
     event_receiver: Receiver<TConnection::ReceiveEvent>,
@@ -87,7 +97,7 @@ impl<TSocket: DatagramSocket, TConnection: Connection> ConnectionManager<TSocket
         let max_unestablished_connections = config.max_unestablished_connections;
 
         ConnectionManager {
-            receive_buffer: vec![0; config.receive_buffer_max_size],
+            receive_buffer: vec![MaybeUninit::uninit(); config.receive_buffer_max_size],
             connections: Default::default(),
             user_event_receiver,
             messenger: SocketEventSenderAndConfig::new(config, socket, event_sender),
@@ -97,12 +107,9 @@ impl<TSocket: DatagramSocket, TConnection: Connection> ConnectionManager<TSocket
         }
     }
 
-    /// Processes any inbound/outbound packets and events.
-    /// Processes connection specific logic for active connections.
-    /// Removes dropped connections from active connections list.
-    pub fn manual_poll(&mut self, time: Instant) {
+    /// Processes any inbound packets and events.
+    pub fn manual_poll_inbound(&mut self, time: Instant) {
         let mut unestablished_connections = self.unestablished_connection_count();
-
         let messenger = &mut self.messenger;
 
         // first we pull all newly arrived packets and handle them
@@ -119,7 +126,7 @@ impl<TSocket: DatagramSocket, TConnection: Connection> ConnectionManager<TSocket
                             unestablished_connections -= 1;
                         }
                     } else {
-                        let mut conn = TConnection::create_connection(messenger, address, time);
+                        let mut conn = TConnection::create_connection(messenger, address.clone(), time);
                         conn.process_packet(messenger, payload, time);
 
                         // We only allow a maximum amount number of unestablished connections to bet created
@@ -142,6 +149,11 @@ impl<TSocket: DatagramSocket, TConnection: Connection> ConnectionManager<TSocket
                 break;
             }
         }
+    }
+
+    /// Processes any outbound packets and events.
+    pub fn manual_poll_outbound(&mut self, time: Instant) {
+        let messenger = &mut self.messenger;
 
         // now grab all the waiting packets and send them
         while let Ok(event) = self.user_event_receiver.try_recv() {
@@ -149,13 +161,14 @@ impl<TSocket: DatagramSocket, TConnection: Connection> ConnectionManager<TSocket
             let conn = self.connections.entry(event.address()).or_insert_with(|| {
                 TConnection::create_connection(messenger, event.address(), time)
             });
-
-            let was_est = conn.is_established();
             conn.process_event(messenger, event, time);
-            if !was_est && conn.is_established() {
-                unestablished_connections -= 1;
-            }
         }
+    }
+
+    /// Processes connection specific logic for active connections.
+    /// Removes dropped connections from active connections list.
+    pub fn manual_poll_update(&mut self, time: Instant) {
+        let messenger = &mut self.messenger;
 
         // update all connections
         for conn in self.connections.values_mut() {
@@ -165,6 +178,15 @@ impl<TSocket: DatagramSocket, TConnection: Connection> ConnectionManager<TSocket
         // iterate through all connections and remove those that should be dropped
         self.connections
             .retain(|_, conn| !conn.should_drop(messenger, time));
+    }
+
+    /// Processes any inbound/outbound packets and events.
+    /// Processes connection specific logic for active connections.
+    /// Removes dropped connections from active connections list.
+    pub fn manual_poll(&mut self, time: Instant) {
+        self.manual_poll_inbound(time);
+        self.manual_poll_outbound(time);
+        self.manual_poll_update(time);
     }
 
     /// Returns a handle to the event sender which provides a thread-safe way to enqueue user events
@@ -214,6 +236,7 @@ mod tests {
         time::Duration,
     };
     use coarsetime::Instant;
+    use socket2::SockAddr;
 
     use crate::net::LinkConditioner;
     use crate::test_utils::*;
@@ -224,16 +247,18 @@ mod tests {
     // The client address from where the data is sent.
     const CLIENT_ADDR: &str = "127.0.0.1:10002";
 
-    fn client_address() -> SocketAddr {
-        CLIENT_ADDR.parse().unwrap()
+    fn client_address() -> SockAddr {
+        let ret: SocketAddr = CLIENT_ADDR.parse().unwrap();
+        ret.into()
     }
 
-    fn client_address_n(n: u16) -> SocketAddr {
-        SocketAddr::V4(SocketAddrV4::new("127.0.0.1".parse().unwrap(), 10002 + n))
+    fn client_address_n(n: u16) -> SockAddr {
+        SocketAddr::V4(SocketAddrV4::new("127.0.0.1".parse().unwrap(), 10002 + n)).into()
     }
 
-    fn server_address() -> SocketAddr {
-        SERVER_ADDR.parse().unwrap()
+    fn server_address() -> SockAddr {
+        let ret: SocketAddr = SERVER_ADDR.parse().unwrap();
+        ret.into()
     }
 
     fn create_server_client_network() -> (FakeSocket, FakeSocket, NetworkEmulator) {

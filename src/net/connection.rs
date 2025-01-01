@@ -1,5 +1,6 @@
-use std::{self, fmt::Debug, net::SocketAddr};
+use std::{self, fmt::Debug, io::IoSlice};
 use coarsetime::Instant;
+use socket2::SockAddr;
 
 use crate::config::Config;
 
@@ -9,16 +10,20 @@ pub trait ConnectionMessenger<ReceiveEvent: Debug> {
     fn config(&self) -> &Config;
 
     /// Sends a connection event.
-    fn send_event(&mut self, address: &SocketAddr, event: ReceiveEvent);
+    fn send_event(&mut self, address: &SockAddr, event: ReceiveEvent);
+    
     /// Sends a packet.
-    fn send_packet(&mut self, address: &SocketAddr, payload: &[u8]);
+    fn send_packet(&mut self, address: &SockAddr, payload: &[u8]);
+    
+    /// Sends a packet with multiple buffers.
+    fn send_packet_vectored(&mut self, address: &SockAddr, bufs: &[IoSlice<'_>]);
 }
 
 /// Returns an address of an event.
 /// This is used by a `ConnectionManager`, because it doesn't know anything about connection events.
 pub trait ConnectionEventAddress {
     /// Returns event address
-    fn address(&self) -> SocketAddr;
+    fn address(&self) -> SockAddr;
 }
 
 /// Allows to implement actual connection.
@@ -35,7 +40,7 @@ pub trait Connection: Debug {
     /// * time - creation time, used by connection, so that it doesn't get dropped immediately or send heartbeat packet.
     fn create_connection(
         messenger: &mut impl ConnectionMessenger<Self::ReceiveEvent>,
-        address: SocketAddr,
+        address: SockAddr,
         time: Instant,
     ) -> Self;
 

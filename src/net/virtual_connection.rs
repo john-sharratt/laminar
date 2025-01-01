@@ -1,7 +1,7 @@
 use std::fmt;
-use std::net::SocketAddr;
 use std::time::Duration;
 use coarsetime::Instant;
+use socket2::SockAddr;
 
 use crate::{
     config::Config,
@@ -28,7 +28,7 @@ pub struct VirtualConnection {
     /// Last time we sent a packet to this client
     pub last_sent: Instant,
     /// The address of the remote endpoint
-    pub remote_address: SocketAddr,
+    pub remote_address: SockAddr,
 
     ever_sent: bool,
     ever_recv: bool,
@@ -43,7 +43,7 @@ pub struct VirtualConnection {
 
 impl VirtualConnection {
     /// Creates and returns a new Connection that wraps the provided socket address
-    pub fn new(addr: SocketAddr, config: &Config, time: Instant) -> VirtualConnection {
+    pub fn new(addr: SockAddr, config: &Config, time: Instant) -> VirtualConnection {
         VirtualConnection {
             last_heard: time,
             last_sent: time,
@@ -285,7 +285,7 @@ impl VirtualConnection {
                     if let Some(packet) = stream.arrange(arranging_header.arranging_id(), payload) {
                         return Ok(IncomingPackets::one(
                             Packet::new(
-                                self.remote_address,
+                                self.remote_address.clone(),
                                 packet,
                                 header.delivery_guarantee(),
                                 OrderingGuarantee::Sequenced(Some(arranging_header.stream_id())),
@@ -299,7 +299,7 @@ impl VirtualConnection {
 
                 return Ok(IncomingPackets::one(
                     Packet::new(
-                        self.remote_address,
+                        self.remote_address.clone(),
                         packet_reader.read_payload(),
                         header.delivery_guarantee(),
                         header.ordering_guarantee(),
@@ -330,7 +330,7 @@ impl VirtualConnection {
 
                                 return Ok(IncomingPackets::one(
                                     Packet::new(
-                                        self.remote_address,
+                                        self.remote_address.clone(),
                                         payload.into_boxed_slice(),
                                         header.delivery_guarantee(),
                                         header.ordering_guarantee(),
@@ -371,7 +371,7 @@ impl VirtualConnection {
                         {
                             return Ok(IncomingPackets::one(
                                 Packet::new(
-                                    self.remote_address,
+                                    self.remote_address.clone(),
                                     packet,
                                     header.delivery_guarantee(),
                                     OrderingGuarantee::Sequenced(Some(
@@ -391,7 +391,7 @@ impl VirtualConnection {
                         let stream = self
                             .ordering_system
                             .get_or_create_stream(arranging_header.stream_id());
-                        let address = self.remote_address;
+                        let address = self.remote_address.clone();
                         return Ok(IncomingPackets::many(
                             stream
                                 .arrange(
@@ -403,7 +403,7 @@ impl VirtualConnection {
                                 .map(|(packet, packet_type)| {
                                     (
                                         Packet::new(
-                                            address,
+                                            address.clone(),
                                             packet,
                                             header.delivery_guarantee(),
                                             OrderingGuarantee::Ordered(Some(
@@ -419,7 +419,7 @@ impl VirtualConnection {
                         let payload = packet_reader.read_payload();
                         return Ok(IncomingPackets::one(
                             Packet::new(
-                                self.remote_address,
+                                self.remote_address.clone(),
                                 payload,
                                 header.delivery_guarantee(),
                                 header.ordering_guarantee(),
@@ -445,9 +445,8 @@ impl fmt::Debug for VirtualConnection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
-            "{}:{}",
-            self.remote_address.ip(),
-            self.remote_address.port()
+            "{:?}",
+            self.remote_address,
         )
     }
 }
@@ -458,6 +457,7 @@ mod tests {
     use coarsetime::Instant;
 
     use byteorder::{BigEndian, WriteBytesExt};
+    use socket2::SockAddr;
 
     use crate::PROTOCOL_VERSION;
     use crate::config::Config;
@@ -865,8 +865,9 @@ mod tests {
         VirtualConnection::new(get_fake_addr(), &Config::default(), Instant::now())
     }
 
-    fn get_fake_addr() -> std::net::SocketAddr {
-        "127.0.0.1:0".parse().unwrap()
+    fn get_fake_addr() -> SockAddr {
+        let ret: std::net::SocketAddr = "127.0.0.1:0".parse().unwrap();
+        ret.into()
     }
 
     // assert that the processing of the given `DeliveryGuarantee` and `OrderingGuarantee` results into the given `result_event`

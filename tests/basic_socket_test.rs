@@ -58,7 +58,7 @@ fn local_addr() {
     let port = 40000;
     let socket =
         Socket::bind(format!("127.0.0.1:{}", port).parse::<SocketAddr>().unwrap()).unwrap();
-    assert_eq!(port, socket.local_addr().unwrap().port());
+    assert_eq!(port, socket.local_addr().unwrap().as_socket().unwrap().port());
 }
 
 #[test]

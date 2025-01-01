@@ -32,7 +32,7 @@ pub fn main() {
     let mut client = Socket::bind(client_address()).unwrap();
 
     client.send(Packet::unreliable(
-        server_address(),
+        server_address().into(),
         serialize(&DataType::Coords {
             latitude: 10.55454,
             longitude: 10.555,
@@ -42,7 +42,7 @@ pub fn main() {
     ));
 
     client.send(Packet::unreliable(
-        server_address(),
+        server_address().into(),
         serialize(&DataType::Coords {
             latitude: 3.344,
             longitude: 5.4545,
@@ -52,7 +52,7 @@ pub fn main() {
     ));
 
     client.send(Packet::unreliable(
-        server_address(),
+        server_address().into(),
         serialize(&DataType::Text {
             string: String::from("Some information"),
         })
