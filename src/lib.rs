@@ -39,6 +39,7 @@ pub use self::net::{
 pub use self::packet::{DeliveryGuarantee, OrderingGuarantee, Packet};
 #[cfg(feature = "tester")]
 pub use self::throughput::ThroughputMonitoring;
+pub use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 
 
 mod config;

@@ -39,7 +39,9 @@
 //! The game developer can indicate on which stream he can order his packets and how he wants to arrange them.
 //! For example, the game developer can say: "Let me set all chat messages to 'stream 1' and all motion packets to 'stream 2'.
 
+#[allow(unused_imports)]
 pub use self::ordering::{IterMut, OrderingStream, OrderingSystem};
+#[allow(unused_imports)]
 pub use self::sequencing::{SequencingStream, SequencingSystem};
 
 mod ordering;
@@ -65,6 +67,7 @@ pub trait ArrangingSystem {
     type Stream;
 
     /// Returns the number of streams currently created.
+    #[allow(dead_code)]
     fn stream_count(&self) -> usize;
     /// Try to get a `Stream` by `stream_id`. When the stream does not exist, it will be inserted by the given `stream_id` and returned.
     fn get_or_create_stream(&mut self, stream_id: u8) -> &mut Self::Stream;
