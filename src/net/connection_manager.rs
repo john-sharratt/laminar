@@ -175,6 +175,11 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
                         }
                     }
                 }
+                Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => {
+                    // this is triggered whenever a packet is sent using the same socket
+                    // as it will unblock the blocking action of receiving data
+                    continue;
+                }   
                 Err(e) => {
                     if e.kind() != std::io::ErrorKind::WouldBlock {
                         error!("Encountered an error receiving data: {:?}", e);
