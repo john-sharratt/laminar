@@ -461,7 +461,7 @@ mod tests {
     use crate::config::Config;
     use crate::net::constants;
     use crate::packet::header::{AckedPacketHeader, ArrangingHeader, HeaderWriter, StandardHeader};
-    use crate::packet::{DeliveryGuarantee, OrderingGuarantee, Packet, PacketInfo, PacketType};
+    use crate::packet::{DeliveryGuarantee, OrderingGuarantee, Packet, PacketInfo, PacketType, SequenceNumber};
 
     use super::VirtualConnection;
 
@@ -874,7 +874,7 @@ mod tests {
         ordering: OrderingGuarantee,
         connection: &mut VirtualConnection,
         result_packet: Option<Packet>,
-        order_id: u16,
+        order_id: SequenceNumber,
     ) {
         let mut packet = Vec::new();
 

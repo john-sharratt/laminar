@@ -121,6 +121,7 @@ pub fn sequence_less_than(s1: SequenceNumber, s2: SequenceNumber) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::packet::SequenceNumber;
+    use crate::packet::SEQUENCE_MID;
     use crate::sequence_buffer::sequence_greater_than;
     use crate::sequence_buffer::sequence_less_than;
 
@@ -135,8 +136,8 @@ mod tests {
         assert!(sequence_less_than(0, 1));
 
         // right around the halfway point is where we cut over.
-        assert!(sequence_greater_than(32768, 0));
-        assert!(sequence_less_than(32769, 0));
+        assert!(sequence_greater_than(SEQUENCE_MID, 0));
+        assert!(sequence_less_than(SEQUENCE_MID + 1, 0));
 
         // in this case, 0 is greater than max because we're likely at the wrapping case
         assert!(sequence_greater_than(0, SequenceNumber::max_value()));

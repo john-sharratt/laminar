@@ -39,7 +39,7 @@ impl HeaderWriter for ArrangingHeader {
     type Output = Result<()>;
 
     fn parse(&self, buffer: &mut Vec<u8>) -> Self::Output {
-        buffer.write_u16::<BigEndian>(self.arranging_id)?;
+        buffer.write_u32::<BigEndian>(self.arranging_id)?;
         buffer.write_u16::<BigEndian>(self.stream_id)?;
 
         Ok(())
@@ -50,7 +50,7 @@ impl HeaderReader for ArrangingHeader {
     type Header = Result<ArrangingHeader>;
 
     fn read(rdr: &mut Cursor<&[u8]>) -> Self::Header {
-        let arranging_id = rdr.read_u16::<BigEndian>()?;
+        let arranging_id = rdr.read_u32::<BigEndian>()?;
         let stream_id = rdr.read_u16::<BigEndian>()?;
 
         let header = ArrangingHeader {
@@ -90,7 +90,7 @@ mod tests {
         let mut buffer = Vec::new();
         buffer.extend_from_slice((1 as SequenceNumber).to_be_bytes().as_ref());
         buffer.extend_from_slice((2 as StreamNumber).to_be_bytes().as_ref());
-        
+
         let mut cursor = Cursor::new(buffer.as_slice());
 
         let header = ArrangingHeader::read(&mut cursor).unwrap();

@@ -347,7 +347,7 @@ mod tests {
             assert![stream.arrange(idx, ()).is_some()];
         }
         assert![stream.arrange(123, ()).is_none()];
-        for idx in 65501..=65535u16 {
+        for idx in 65501..=65535u32 {
             assert![stream.arrange(idx, ()).is_some()];
         }
         assert![stream.arrange(0, ()).is_some()];
@@ -359,7 +359,7 @@ mod tests {
 
     #[test]
     fn exactly_half_u16_packet_is_stored() {
-        let mut system: OrderingSystem<u16> = OrderingSystem::new();
+        let mut system: OrderingSystem<SequenceNumber> = OrderingSystem::new();
 
         let stream = system.get_or_create_stream(1);
         for idx in 0..=32766 {

@@ -52,8 +52,8 @@ impl HeaderWriter for AckedPacketHeader {
     type Output = Result<()>;
 
     fn parse(&self, buffer: &mut Vec<u8>) -> Self::Output {
-        buffer.write_u16::<BigEndian>(self.seq)?;
-        buffer.write_u16::<BigEndian>(self.ack_seq)?;
+        buffer.write_u32::<BigEndian>(self.seq)?;
+        buffer.write_u32::<BigEndian>(self.ack_seq)?;
         buffer.write_u32::<BigEndian>(self.ack_field)?;
         Ok(())
     }
@@ -63,8 +63,8 @@ impl HeaderReader for AckedPacketHeader {
     type Header = Result<AckedPacketHeader>;
 
     fn read(rdr: &mut Cursor<&[u8]>) -> Self::Header {
-        let seq = rdr.read_u16::<BigEndian>()?;
-        let ack_seq = rdr.read_u16::<BigEndian>()?;
+        let seq = rdr.read_u32::<BigEndian>()?;
+        let ack_seq = rdr.read_u32::<BigEndian>()?;
         let ack_field = rdr.read_u32::<BigEndian>()?;
 
         Ok(AckedPacketHeader {

@@ -16,7 +16,7 @@ mod process_result;
 
 pub type StreamNumber = u16;
 pub type FragmentNumber = u8;
-pub type SequenceNumber = u16;
+pub type SequenceNumber = u32;
 pub type AckFieldNumber = u32;
 
 pub const SEQUENCE_MID: SequenceNumber = ((SequenceNumber::MAX - 1) / 2 ) + 1;

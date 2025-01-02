@@ -308,7 +308,7 @@ mod test {
     #[test]
     fn remote_seq_num_will_be_updated() {
         let mut handler = AcknowledgmentHandler::new();
-        assert_eq!(handler.remote_sequence_num(), 65535);
+        assert_eq!(handler.remote_sequence_num(), SequenceNumber::MAX);
         handler.process_incoming(0, 0, 0);
         assert_eq!(handler.remote_sequence_num(), 0);
         handler.process_incoming(1, 0, 0);
