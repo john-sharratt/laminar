@@ -15,8 +15,7 @@ use crate::{
         STANDARD_HEADER_SIZE,
     },
     packet::{
-        DeliveryGuarantee, IncomingPackets, OrderingGuarantee, OutgoingPacketBuilder,
-        OutgoingPackets, Packet, PacketInfo, PacketReader, PacketType, SequenceNumber,
+        DeliveryGuarantee, FragmentNumber, IncomingPackets, OrderingGuarantee, OutgoingPacketBuilder, OutgoingPackets, Packet, PacketInfo, PacketReader, PacketType, SequenceNumber
     },
 };
 
@@ -82,7 +81,7 @@ impl VirtualConnection {
     }
 
     /// Returns the current number of not yet acknowledged packets
-    pub fn packets_in_flight(&self) -> u16 {
+    pub fn packets_in_flight(&self) -> usize {
         self.acknowledge_handler.packets_in_flight()
     }
 
@@ -135,7 +134,7 @@ impl VirtualConnection {
                 }
             }
             DeliveryGuarantee::Reliable => {
-                let payload_length = packet.payload.len() as u16;
+                let payload_length = packet.payload.len() ;
 
                 let mut item_identifier_value = None;
                 let outgoing = {
@@ -193,16 +192,18 @@ impl VirtualConnection {
                         if packet.packet_type != PacketType::Packet {
                             return Err(PacketErrorKind::PacketCannotBeFragmented.into());
                         }
+                        let fragments_needed = Fragmentation::fragments_needed(
+                            payload_length,
+                            self.config.fragment_size,
+                        );
+                        if fragments_needed > self.config.max_fragments as usize {
+                            return Err(PacketErrorKind::PacketCannotBeFragmented.into());
+                        }
                         OutgoingPackets::many(
                             Fragmentation::spit_into_fragments(packet.payload, &self.config)?
                                 .into_iter()
                                 .enumerate()
                                 .map(|(fragment_id, fragment)| {
-                                    let fragments_needed = Fragmentation::fragments_needed(
-                                        payload_length,
-                                        self.config.fragment_size,
-                                    )
-                                        as u8;
 
                                     let mut builder = OutgoingPacketBuilder::new(fragment)
                                         .with_default_header(
@@ -213,8 +214,8 @@ impl VirtualConnection {
 
                                     builder = builder.with_fragment_header(
                                         self.acknowledge_handler.local_sequence_num(),
-                                        fragment_id as u8,
-                                        fragments_needed,
+                                        fragment_id as FragmentNumber,
+                                        fragments_needed as FragmentNumber,
                                     );
 
                                     if fragment_id == 0 {
@@ -274,7 +275,7 @@ impl VirtualConnection {
             DeliveryGuarantee::Unreliable => {
                 if let OrderingGuarantee::Sequenced(_id) = header.ordering_guarantee() {
                     let arranging_header =
-                        packet_reader.read_arranging_header(u16::from(STANDARD_HEADER_SIZE))?;
+                        packet_reader.read_arranging_header(STANDARD_HEADER_SIZE)?;
 
                     let payload = packet_reader.read_payload();
 
@@ -356,9 +357,7 @@ impl VirtualConnection {
                     );
 
                     if let OrderingGuarantee::Sequenced(_) = header.ordering_guarantee() {
-                        let arranging_header = packet_reader.read_arranging_header(u16::from(
-                            STANDARD_HEADER_SIZE + ACKED_PACKET_HEADER,
-                        ))?;
+                        let arranging_header = packet_reader.read_arranging_header(STANDARD_HEADER_SIZE + ACKED_PACKET_HEADER)?;
 
                         let payload = packet_reader.read_payload();
 
@@ -382,9 +381,8 @@ impl VirtualConnection {
                             ));
                         }
                     } else if let OrderingGuarantee::Ordered(_id) = header.ordering_guarantee() {
-                        let arranging_header = packet_reader.read_arranging_header(u16::from(
-                            STANDARD_HEADER_SIZE + ACKED_PACKET_HEADER,
-                        ))?;
+                        let arranging_header = packet_reader.read_arranging_header(
+                            STANDARD_HEADER_SIZE + ACKED_PACKET_HEADER)?;
 
                         let payload = packet_reader.read_payload();
 

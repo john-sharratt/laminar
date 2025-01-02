@@ -113,7 +113,7 @@ impl HeaderReader for StandardHeader {
     }
 
     /// Returns the size of this header.
-    fn size() -> u8 {
+    fn size() -> usize {
         STANDARD_HEADER_SIZE
     }
 }

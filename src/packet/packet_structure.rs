@@ -2,6 +2,8 @@ use socket2::SockAddr;
 
 use crate::packet::{DeliveryGuarantee, OrderingGuarantee, PacketType};
 
+use super::StreamNumber;
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 /// This is a user friendly packet containing the payload, endpoint, and reliability guarantees.
 /// A packet could have reliability guarantees to specify how it should be delivered and processed.
@@ -76,7 +78,7 @@ impl Packet {
     pub fn unreliable_sequenced(
         addr: SockAddr,
         payload: Vec<u8>,
-        stream_id: Option<u8>,
+        stream_id: Option<StreamNumber>,
     ) -> Packet {
         Packet {
             addr,

@@ -43,8 +43,8 @@ impl<'s> PacketReader<'s> {
     ///
     /// # Remark
     /// - Will change the position to the location of `StandardHeader`
-    pub fn read_arranging_header(&mut self, start_offset: u16) -> Result<ArrangingHeader> {
-        self.cursor.set_position(u64::from(start_offset));
+    pub fn read_arranging_header(&mut self, start_offset: usize) -> Result<ArrangingHeader> {
+        self.cursor.set_position(start_offset as u64);
 
         if self.can_read(ArrangingHeader::size()) {
             ArrangingHeader::read(&mut self.cursor)
@@ -59,7 +59,7 @@ impl<'s> PacketReader<'s> {
     /// - Will change the position to the location of `AckedPacketHeader`
     pub fn read_acknowledge_header(&mut self) -> Result<AckedPacketHeader> {
         // acknowledge header comes after standard header.
-        self.cursor.set_position(u64::from(STANDARD_HEADER_SIZE));
+        self.cursor.set_position(STANDARD_HEADER_SIZE as u64);
 
         if self.can_read(AckedPacketHeader::size()) {
             AckedPacketHeader::read(&mut self.cursor)
@@ -106,7 +106,7 @@ impl<'s> PacketReader<'s> {
     }
 
     // Checks if a given length of bytes could be read with the buffer.
-    fn can_read(&self, length: u8) -> bool {
+    fn can_read(&self, length: usize) -> bool {
         (self.buffer.len() - self.cursor.position() as usize) >= length as usize
     }
 }
@@ -121,8 +121,8 @@ mod tests {
         let buffer = vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
 
         let reader = PacketReader::new(buffer.as_slice());
-        assert!(reader.can_read(buffer.len() as u8));
-        assert!(!reader.can_read((buffer.len() + 1) as u8));
+        assert!(reader.can_read(buffer.len()));
+        assert!(!reader.can_read(buffer.len() + 1));
     }
 
     #[test]
@@ -204,7 +204,7 @@ mod tests {
         let mut reader = PacketReader::new(reliable_ordered_payload.as_slice());
 
         let arranging_header = reader
-            .read_arranging_header(u16::from(StandardHeader::size()))
+            .read_arranging_header(StandardHeader::size())
             .unwrap();
 
         assert_eq!(arranging_header.arranging_id(), 1);
@@ -225,9 +225,7 @@ mod tests {
         let standard_header = reader.read_standard_header().unwrap();
         let acked_header = reader.read_acknowledge_header().unwrap();
         let arranging_header = reader
-            .read_arranging_header(u16::from(
-                StandardHeader::size() + AckedPacketHeader::size(),
-            ))
+            .read_arranging_header(StandardHeader::size() + AckedPacketHeader::size())
             .unwrap();
 
         assert_eq!(standard_header.protocol_version(), 1);

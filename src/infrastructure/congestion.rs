@@ -26,7 +26,7 @@ impl CongestionHandler {
     /// Processes incoming sequence number.
     ///
     /// This will calculate the RTT-time and smooth down the RTT-value to prevent uge RTT-spikes.
-    pub fn process_incoming(&mut self, incoming_seq: u16) {
+    pub fn process_incoming(&mut self, incoming_seq: SequenceNumber) {
         let congestion_data = self.congestion_data.get_mut(incoming_seq);
         self.rtt_measurer.calculate_rrt(congestion_data);
     }
@@ -35,7 +35,7 @@ impl CongestionHandler {
     ///
     /// This will insert an entry which is used for keeping track of the sending time.
     /// Once we process incoming sequence numbers we can calculate the `RTT` time.
-    pub fn process_outgoing(&mut self, seq: u16, time: Instant) {
+    pub fn process_outgoing(&mut self, seq: SequenceNumber, time: Instant) {
         self.congestion_data
             .insert(seq, CongestionData::new(seq, time));
     }

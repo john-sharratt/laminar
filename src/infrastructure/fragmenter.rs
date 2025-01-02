@@ -52,7 +52,7 @@ impl Fragmentation {
     ///
     /// So for 4000 bytes we need 4 fragments
     /// [fragment: 1024] [fragment: 1024] [fragment: 1024] [fragment: 928]
-    pub fn fragments_needed(payload_length: u16, fragment_size: u16) -> u16 {
+    pub fn fragments_needed(payload_length: usize, fragment_size: usize) -> usize {
         let remainder = if payload_length % fragment_size > 0 {
             1
         } else {
@@ -65,19 +65,19 @@ impl Fragmentation {
     pub fn spit_into_fragments<'a>(payload: &'a [u8], config: &Config) -> Result<Vec<&'a [u8]>> {
         let mut fragments = Vec::new();
 
-        let payload_length = payload.len() as u16;
+        let payload_length = payload.len();
         let num_fragments =
             // Safe cast max fragments is u8
-            Fragmentation::fragments_needed(payload_length, config.fragment_size) as u16;
+            Fragmentation::fragments_needed(payload_length, config.fragment_size);
 
-        if num_fragments > config.max_fragments {
+        if num_fragments > config.max_fragments as usize {
             return Err(FragmentErrorKind::ExceededMaxFragments.into());
         }
 
         for fragment_id in 0..num_fragments {
             // get start and end position of buffer
-            let start_fragment_pos = u16::from(fragment_id) * config.fragment_size;
-            let mut end_fragment_pos = (u16::from(fragment_id) + 1) * config.fragment_size;
+            let start_fragment_pos = usize::from(fragment_id) * config.fragment_size;
+            let mut end_fragment_pos = (usize::from(fragment_id) + 1) * config.fragment_size;
 
             // If remaining buffer fits int one packet just set the end position to the length of the packet payload.
             if end_fragment_pos > payload_length {
@@ -173,7 +173,7 @@ impl Fragmentation {
             let reassembly_data = ReassemblyData::new(
                 fragment_header.sequence(),
                 fragment_header.fragment_count(),
-                (u16::from(FRAGMENT_HEADER_SIZE) + self.config.fragment_size) as usize,
+                usize::from(FRAGMENT_HEADER_SIZE) + self.config.fragment_size,
             );
 
             self.fragments

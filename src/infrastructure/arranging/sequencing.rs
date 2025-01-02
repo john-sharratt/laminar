@@ -11,7 +11,7 @@
 
 use std::{collections::HashMap, marker::PhantomData};
 
-use crate::packet::SequenceNumber;
+use crate::packet::{SequenceNumber, StreamNumber, SEQUENCE_MID};
 
 use super::{Arranging, ArrangingSystem};
 
@@ -23,7 +23,7 @@ use super::{Arranging, ArrangingSystem};
 /// - See [super-module](../index.html) for more information about streams.
 pub struct SequencingSystem<T> {
     // '[HashMap]' with streams on which items can be arranged in-sequence.
-    streams: HashMap<u8, SequencingStream<T>>,
+    streams: HashMap<StreamNumber, SequencingStream<T>>,
 }
 
 impl<T> SequencingSystem<T> {
@@ -45,7 +45,7 @@ impl<T> ArrangingSystem for SequencingSystem<T> {
 
     /// Tries to get an [`SequencingStream`](./struct.SequencingStream.html) by `stream_id`.
     /// When the stream does not exist, it will be inserted by the given `stream_id` and returned.
-    fn get_or_create_stream(&mut self, stream_id: u8) -> &mut Self::Stream {
+    fn get_or_create_stream(&mut self, stream_id: StreamNumber) -> &mut Self::Stream {
         self.streams
             .entry(stream_id)
             .or_insert_with(|| SequencingStream::new(stream_id))
@@ -70,20 +70,20 @@ impl<T> ArrangingSystem for SequencingSystem<T> {
 /// - See [super-module](../index.html) for more information about streams.
 pub struct SequencingStream<T> {
     // the id of this stream.
-    _stream_id: u8,
+    _stream_id: StreamNumber,
     // the highest seen item index.
-    top_index: u16,
+    top_index: SequenceNumber,
     // Needs `PhantomData`, otherwise, it can't use a generic in the `Arranging` implementation because `T` is not constrained.
     phantom: PhantomData<T>,
     // unique identifier which should be used for ordering on an other stream e.g. the remote endpoint.
-    unique_item_identifier: u16,
+    unique_item_identifier: SequenceNumber,
 }
 
 impl<T> SequencingStream<T> {
     /// Constructs a new, empty '[SequencingStream](./struct.SequencingStream.html)'.
     ///
     /// The default stream will have a capacity of 32 items.
-    pub fn new(stream_id: u8) -> SequencingStream<T> {
+    pub fn new(stream_id: StreamNumber) -> SequencingStream<T> {
         SequencingStream {
             _stream_id: stream_id,
             top_index: 0,
@@ -94,7 +94,7 @@ impl<T> SequencingStream<T> {
 
     /// Returns the identifier of this stream.
     #[cfg(test)]
-    pub fn stream_id(&self) -> u8 {
+    pub fn stream_id(&self) -> StreamNumber {
         self._stream_id
     }
 
@@ -106,10 +106,10 @@ impl<T> SequencingStream<T> {
     }
 }
 
-fn is_u16_within_half_window_from_start(start: u16, incoming: u16) -> bool {
-    // check (with wrapping) if the incoming value lies within the next u16::max_value()/2 from
+fn is_seq_within_half_window_from_start(start: SequenceNumber, incoming: SequenceNumber) -> bool {
+    // check (with wrapping) if the incoming value lies within the next seq::max_value()/2 from
     // start.
-    incoming.wrapping_sub(start) <= u16::max_value() / 2 + 1
+    incoming.wrapping_sub(start) <= SEQUENCE_MID
 }
 
 impl<T> Arranging for SequencingStream<T> {
@@ -134,10 +134,10 @@ impl<T> Arranging for SequencingStream<T> {
     /// - None is returned when an old packet is received.
     fn arrange(
         &mut self,
-        incoming_index: u16,
+        incoming_index: SequenceNumber,
         item: Self::ArrangingItem,
     ) -> Option<Self::ArrangingItem> {
-        if is_u16_within_half_window_from_start(self.top_index, incoming_index) {
+        if is_seq_within_half_window_from_start(self.top_index, incoming_index) {
             self.top_index = incoming_index;
             return Some(item);
         }
@@ -147,16 +147,18 @@ impl<T> Arranging for SequencingStream<T> {
 
 #[cfg(test)]
 mod tests {
+    use crate::packet::{SequenceNumber, StreamNumber};
+
     use super::{Arranging, ArrangingSystem, SequencingSystem};
 
     #[derive(Debug, PartialEq, Clone)]
     struct Packet {
-        pub sequence: u16,
-        pub ordering_stream: u8,
+        pub sequence: SequenceNumber,
+        pub ordering_stream: StreamNumber,
     }
 
     impl Packet {
-        fn new(sequence: u16, ordering_stream: u8) -> Packet {
+        fn new(sequence: SequenceNumber, ordering_stream: StreamNumber) -> Packet {
             Packet {
                 sequence,
                 ordering_stream,

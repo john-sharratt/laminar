@@ -17,6 +17,7 @@ impl ConnectionEventAddress for SocketEvent {
         match self {
             SocketEvent::Packet(packet) => packet.addr().clone(),
             SocketEvent::Connect(addr) => addr.clone(),
+            SocketEvent::Overload(addr) => addr.clone(),
             SocketEvent::Timeout(addr) => addr.clone(),
             SocketEvent::Disconnect(addr) => addr.clone(),
         }
@@ -60,13 +61,22 @@ impl Connection for VirtualConnection {
         messenger: &mut impl ConnectionMessenger<Self::ReceiveEvent>,
         time: Instant,
     ) -> bool {
-        let should_drop = self.packets_in_flight() > messenger.config().max_packets_in_flight
-            || self.last_heard(time) >= messenger.config().idle_connection_timeout;
+        let too_many = self.packets_in_flight() > messenger.config().max_packets_in_flight;
+        let too_late = self.last_heard(time) >= messenger.config().idle_connection_timeout;
+        let should_drop = too_many || too_late;
         if should_drop {
-            messenger.send_event(
-                &self.remote_address,
-                SocketEvent::Timeout(self.remote_address.clone()),
-            );
+            if too_many {
+                messenger.send_event(
+                    &self.remote_address,
+                    SocketEvent::Overload(self.remote_address.clone()),
+                );
+            }
+            if too_late {
+                messenger.send_event(
+                    &self.remote_address,
+                    SocketEvent::Timeout(self.remote_address.clone()),
+                );
+            }
             if self.is_established() {
                 messenger.send_event(
                     &self.remote_address,

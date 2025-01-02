@@ -102,7 +102,7 @@ pub struct ConnectionManager<TConnection: Connection> {
     connections: Arc<Mutex<HashMap<SockAddr, TConnection>>>,
     receive_buffer: Vec<MaybeUninit<u8>>,
     event_receiver: Receiver<TConnection::ReceiveEvent>,
-    max_unestablished_connections: u16,
+    max_unestablished_connections: usize,
     rx: Box<dyn DatagramSocketReceiver + Send + Sync>,
     tx: ConnectionSender<TConnection>,
 }
@@ -123,7 +123,7 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
             event_receiver: event_receiver.clone(),
             max_unestablished_connections,
             tx: ConnectionSender {
-                connections: Default::default(),
+                connections,
                 tx: SocketEventSenderAndConfig::new(config.clone(), tx, event_sender),
                 event_receiver,
             },
@@ -196,18 +196,7 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
     /// Processes connection specific logic for active connections.
     /// Removes dropped connections from active connections list.
     pub fn manual_poll_update(&mut self, time: Instant) {
-        let messenger = &mut self.tx.tx;
-
-        // update all connections
-        for conn in self.connections.lock().unwrap().values_mut() {
-            conn.update(messenger, time);
-        }
-
-        // iterate through all connections and remove those that should be dropped
-        self.connections
-            .lock()
-            .unwrap()
-            .retain(|_, conn| !conn.should_drop(messenger, time));
+        self.tx.manual_poll_update(time);
     }
 
     /// Processes any inbound/outbound packets and events.
@@ -298,13 +287,34 @@ impl<TConnection: Connection> ConnectionSender<TConnection> {
         let messenger = &mut self.tx;
         let time = Instant::now();
         
-        // get or create connection
-        let mut connections = self.connections.lock().unwrap();
-        let conn = connections.entry(event.address()).or_insert_with(|| {
-            TConnection::create_connection(messenger, event.address(), time)
-        });
-        conn.process_event(messenger, event, time);
+        {
+            // get or create connection
+            let mut connections = self.connections.lock().unwrap();
+            let conn = connections.entry(event.address()).or_insert_with(|| {
+                TConnection::create_connection(messenger, event.address(), time)
+            });
+            conn.process_event(messenger, event, time);
+        }
+        
+        self.manual_poll_update(time);
         Ok(())
+    }
+
+    /// Processes connection specific logic for active connections.
+    /// Removes dropped connections from active connections list.
+    pub fn manual_poll_update(&mut self, time: Instant) {
+        let messenger = &mut self.tx;
+
+        // update all connections
+        for conn in self.connections.lock().unwrap().values_mut() {
+            conn.update(messenger, time);
+        }
+
+        // iterate through all connections and remove those that should be dropped
+        self.connections
+            .lock()
+            .unwrap()
+            .retain(|_, conn| !conn.should_drop(messenger, time));
     }
 
     /// Returns a handle to the event receiver which provides a thread-safe way to retrieve events
@@ -598,7 +608,7 @@ mod tests {
                     assert![!seen.contains(&byte)];
                     seen.insert(byte);
                 }
-                SocketEvent::Timeout(_) | SocketEvent::Disconnect(_) => {
+                SocketEvent::Timeout(_) | SocketEvent::Overload(_) | SocketEvent::Disconnect(_) => {
                     panic!["This should not happen, as we've not advanced time"];
                 }
             }
@@ -636,7 +646,7 @@ mod tests {
                 SocketEvent::Packet(_) => {
                     cnt += 1;
                 }
-                SocketEvent::Timeout(_) | SocketEvent::Disconnect(_) => {
+                SocketEvent::Timeout(_) | SocketEvent::Overload(_) | SocketEvent::Disconnect(_) => {
                     panic!["This should not happen, as we've not advanced time"];
                 }
             }
@@ -666,7 +676,7 @@ mod tests {
 
             while let Some(event) = client.recv() {
                 match event {
-                    SocketEvent::Timeout(remote_addr) => {
+                    SocketEvent::Overload(remote_addr) => {
                         assert_eq![100, id];
                         assert_eq![remote_addr, server_address()];
                         return;
@@ -740,11 +750,11 @@ mod tests {
         client.manual_poll(now);
         server.manual_poll(now);
 
-        assert!(matches!(server.recv().unwrap(), SocketEvent::Packet(_)));
         assert_eq!(
             server.recv().unwrap(),
             SocketEvent::Connect(client_address())
         );
+        assert!(matches!(server.recv().unwrap(), SocketEvent::Packet(_)));
     }
 
     #[test]
@@ -792,15 +802,15 @@ mod tests {
         );
 
         // give just enough time for no timeout events to occur (yet)
-        server.manual_poll(now + coarsetime::Duration::from(config.idle_connection_timeout) - coarsetime::Duration::from_millis(1));
-        client.manual_poll(now + coarsetime::Duration::from(config.idle_connection_timeout) - coarsetime::Duration::from_millis(1));
+        server.manual_poll(now + coarsetime::Duration::from(config.idle_connection_timeout) - coarsetime::Duration::from_millis(50));
+        client.manual_poll(now + coarsetime::Duration::from(config.idle_connection_timeout) - coarsetime::Duration::from_millis(50));
 
         assert_eq!(server.recv(), None);
         assert_eq!(client.recv(), None);
 
         // give enough time for timeouts to be detected
-        server.manual_poll(now + coarsetime::Duration::from(config.idle_connection_timeout));
-        client.manual_poll(now + coarsetime::Duration::from(config.idle_connection_timeout));
+        server.manual_poll(now + coarsetime::Duration::from(config.idle_connection_timeout) + coarsetime::Duration::from_millis(50));
+        client.manual_poll(now + coarsetime::Duration::from(config.idle_connection_timeout) + coarsetime::Duration::from_millis(50));
 
         assert_eq!(
             server.recv().unwrap(),

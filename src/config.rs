@@ -1,6 +1,6 @@
 use std::{default::Default, time::Duration};
 
-use crate::net::constants::{DEFAULT_MTU, FRAGMENT_SIZE_DEFAULT, MAX_FRAGMENTS_DEFAULT};
+use crate::{net::constants::{DEFAULT_MTU, FRAGMENT_SIZE_DEFAULT, MAX_FRAGMENTS_DEFAULT}, packet::FragmentNumber};
 
 #[derive(Clone, Debug)]
 /// Contains the configuration options to configure laminar for special use-cases.
@@ -23,13 +23,13 @@ pub struct Config {
     /// Use TCP instead (later we will probably support larger ranges but every fragment packet then needs to be resent if it doesn't get an acknowledgment).
     ///
     /// default: 16 but keep in mind that lower is better.
-    pub max_fragments: u16,
+    pub max_fragments: FragmentNumber,
     /// Value which can specify the size of a fragment.
     ///
     /// This is the maximum size of each fragment. It defaults to `1450` bytes, due to the default MTU on most network devices being `1500`.
-    pub fragment_size: u16,
+    pub fragment_size: usize,
     /// Value which can specify the size of the buffer that queues up fragments ready to be reassembled once all fragments have arrived.
-    pub fragment_reassembly_buffer_size: u16,
+    pub fragment_reassembly_buffer_size: usize,
     /// Value that specifies the size of the buffer the UDP data will be read into. Defaults to `1450` bytes.
     pub receive_buffer_max_size: usize,
     /// Value which can specify the factor which will smooth out network jitter.
@@ -54,11 +54,11 @@ pub struct Config {
     ///
     /// When we send a reliable packet, it is stored locally until an acknowledgement comes back to
     /// us, if that store grows to a size.
-    pub max_packets_in_flight: u16,
+    pub max_packets_in_flight: usize,
 
     /// The maximum number of unestablished connections that laminar will track internally. This is
     /// used to prevent malicious packet flooding from consuming an unbounded amount of memory.
-    pub max_unestablished_connections: u16,
+    pub max_unestablished_connections: usize,
 }
 
 impl Default for Config {
@@ -69,7 +69,7 @@ impl Default for Config {
             reuse_address: true,
             idle_connection_timeout: Duration::from_secs(5),
             heartbeat_interval: None,
-            max_fragments: MAX_FRAGMENTS_DEFAULT as u16,
+            max_fragments: MAX_FRAGMENTS_DEFAULT,
             fragment_size: FRAGMENT_SIZE_DEFAULT,
             fragment_reassembly_buffer_size: 64,
             receive_buffer_max_size: DEFAULT_MTU as usize,

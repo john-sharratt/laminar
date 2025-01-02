@@ -2,7 +2,7 @@ use std::io::Cursor;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use crate::error::Result;
+use crate::{error::Result, packet::StreamNumber};
 use crate::net::constants::ARRANGING_PACKET_HEADER;
 use crate::packet::SequenceNumber;
 
@@ -12,12 +12,12 @@ use super::{HeaderReader, HeaderWriter};
 /// This header represents a fragmented packet header.
 pub struct ArrangingHeader {
     arranging_id: SequenceNumber,
-    stream_id: u8,
+    stream_id: StreamNumber,
 }
 
 impl ArrangingHeader {
     /// Creates new fragment with the given packet header
-    pub fn new(arranging_id: SequenceNumber, stream_id: u8) -> Self {
+    pub fn new(arranging_id: SequenceNumber, stream_id: StreamNumber) -> Self {
         ArrangingHeader {
             arranging_id,
             stream_id,
@@ -30,7 +30,7 @@ impl ArrangingHeader {
     }
 
     /// Returns the sequence number from this packet.
-    pub fn stream_id(&self) -> u8 {
+    pub fn stream_id(&self) -> StreamNumber {
         self.stream_id
     }
 }
@@ -62,7 +62,7 @@ impl HeaderReader for ArrangingHeader {
     }
 
     /// Returns the size of this header.
-    fn size() -> u8 {
+    fn size() -> usize {
         ARRANGING_PACKET_HEADER
     }
 }

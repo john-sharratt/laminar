@@ -73,7 +73,7 @@
 
 use std::collections::HashMap;
 
-use crate::packet::SequenceNumber;
+use crate::packet::{SequenceNumber, StreamNumber, SEQUENCE_MID};
 
 use super::{Arranging, ArrangingSystem};
 
@@ -85,7 +85,7 @@ use super::{Arranging, ArrangingSystem};
 /// - See [super-module](../index.html) for more information about streams.
 pub struct OrderingSystem<T> {
     // '[HashMap]' with streams on which items can be ordered.
-    streams: HashMap<u8, OrderingStream<T>>,
+    streams: HashMap<StreamNumber, OrderingStream<T>>,
 }
 
 impl<T> OrderingSystem<T> {
@@ -107,7 +107,7 @@ impl<T> ArrangingSystem for OrderingSystem<T> {
 
     /// Try to get an [`OrderingStream`](./struct.OrderingStream.html) by `stream_id`.
     /// When the stream does not exist, it will be inserted by the given `stream_id` and returned.
-    fn get_or_create_stream(&mut self, stream_id: u8) -> &mut Self::Stream {
+    fn get_or_create_stream(&mut self, stream_id: StreamNumber) -> &mut Self::Stream {
         self.streams
             .entry(stream_id)
             .or_insert_with(|| OrderingStream::new(stream_id))
@@ -131,21 +131,21 @@ impl<T> ArrangingSystem for OrderingSystem<T> {
 /// - See [super-module](../index.html) for more information about streams.
 pub struct OrderingStream<T> {
     // The id of this stream.
-    _stream_id: u8,
+    _stream_id: StreamNumber,
     // Storage with items that are waiting for older items to arrive.
     // Items are stored by key and value where the key is the incoming index and the value is the item value.
-    storage: HashMap<u16, T>,
+    storage: HashMap<SequenceNumber, T>,
     // Next expected item index.
-    expected_index: u16,
+    expected_index: SequenceNumber,
     // unique identifier which should be used for ordering on a different stream e.g. the remote endpoint.
-    unique_item_identifier: u16,
+    unique_item_identifier: SequenceNumber,
 }
 
 impl<T> OrderingStream<T> {
     /// Constructs a new, empty [`OrderingStream<T>`](./struct.OrderingStream.html).
     ///
     /// The default stream will have a capacity of 32 items.
-    pub fn new(stream_id: u8) -> OrderingStream<T> {
+    pub fn new(stream_id: StreamNumber) -> OrderingStream<T> {
         OrderingStream::with_capacity(1024, stream_id)
     }
 
@@ -158,7 +158,7 @@ impl<T> OrderingStream<T> {
     /// the stream will have a zero length.
     ///
     /// [`OrderingStream`]: ./struct.OrderingStream.html
-    pub fn with_capacity(size: usize, stream_id: u8) -> OrderingStream<T> {
+    pub fn with_capacity(size: usize, stream_id: StreamNumber) -> OrderingStream<T> {
         OrderingStream {
             storage: HashMap::with_capacity(size),
             expected_index: 0,
@@ -169,13 +169,13 @@ impl<T> OrderingStream<T> {
 
     /// Returns the identifier of this stream.
     #[cfg(test)]
-    pub fn stream_id(&self) -> u8 {
+    pub fn stream_id(&self) -> StreamNumber {
         self._stream_id
     }
 
     /// Returns the next expected index.
     #[cfg(test)]
-    pub fn expected_index(&self) -> u16 {
+    pub fn expected_index(&self) -> SequenceNumber {
         self.expected_index
     }
 
@@ -219,9 +219,9 @@ impl<T> OrderingStream<T> {
     }
 }
 
-fn is_u16_within_half_window_from_start(start: u16, incoming: u16) -> bool {
-    // check (with wrapping) if the incoming value lies within the `next u16::max_value()/2` from start
-    incoming.wrapping_sub(start) <= u16::max_value() / 2 + 1
+fn is_seq_within_half_window_from_start(start: SequenceNumber, incoming: SequenceNumber) -> bool {
+    // check (with wrapping) if the incoming value lies within the `next max_value()/2` from start
+    incoming.wrapping_sub(start) <= SEQUENCE_MID
 }
 
 impl<T> Arranging for OrderingStream<T> {
@@ -247,13 +247,13 @@ impl<T> Arranging for OrderingStream<T> {
     ///   However the item given to `arrange` will be returned directly when it matches the `expected_index`.
     fn arrange(
         &mut self,
-        incoming_offset: u16,
+        incoming_offset: SequenceNumber,
         item: Self::ArrangingItem,
     ) -> Option<Self::ArrangingItem> {
         if incoming_offset == self.expected_index {
             self.expected_index = self.expected_index.wrapping_add(1);
             Some(item)
-        } else if is_u16_within_half_window_from_start(self.expected_index, incoming_offset) {
+        } else if is_seq_within_half_window_from_start(self.expected_index, incoming_offset) {
             self.storage.insert(incoming_offset, item);
             None
         } else {
@@ -278,8 +278,8 @@ impl<T> Arranging for OrderingStream<T> {
 /// - Iterator mutates the `expected_index`.
 /// - You can't use this iterator for iterating trough all cached values.
 pub struct IterMut<'a, T> {
-    items: &'a mut HashMap<u16, T>,
-    expected_index: &'a mut u16,
+    items: &'a mut HashMap<SequenceNumber, T>,
+    expected_index: &'a mut SequenceNumber,
 }
 
 impl<'a, T> Iterator for IterMut<'a, T> {
@@ -300,16 +300,18 @@ impl<'a, T> Iterator for IterMut<'a, T> {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_u16_within_half_window_from_start, Arranging, ArrangingSystem, OrderingSystem};
+    use crate::packet::{SequenceNumber, StreamNumber};
+
+    use super::{is_seq_within_half_window_from_start, Arranging, ArrangingSystem, OrderingSystem};
 
     #[derive(Debug, PartialEq, Clone)]
     struct Packet {
-        pub sequence: u16,
-        pub ordering_stream: u8,
+        pub sequence: SequenceNumber,
+        pub ordering_stream: StreamNumber,
     }
 
     impl Packet {
-        fn new(sequence: u16, ordering_stream: u8) -> Packet {
+        fn new(sequence: SequenceNumber, ordering_stream: StreamNumber) -> Packet {
             Packet {
                 sequence,
                 ordering_stream,
@@ -371,16 +373,16 @@ mod tests {
 
     #[test]
     fn u16_forward_half() {
-        assert![!is_u16_within_half_window_from_start(0, 65535)];
-        assert![!is_u16_within_half_window_from_start(0, 32769)];
+        assert![!is_seq_within_half_window_from_start(0, 65535)];
+        assert![!is_seq_within_half_window_from_start(0, 32769)];
 
-        assert![is_u16_within_half_window_from_start(0, 32768)];
-        assert![is_u16_within_half_window_from_start(0, 32767)];
+        assert![is_seq_within_half_window_from_start(0, 32768)];
+        assert![is_seq_within_half_window_from_start(0, 32767)];
 
-        assert![is_u16_within_half_window_from_start(32767, 65535)];
-        assert![!is_u16_within_half_window_from_start(32766, 65535)];
-        assert![is_u16_within_half_window_from_start(32768, 65535)];
-        assert![is_u16_within_half_window_from_start(32769, 0)];
+        assert![is_seq_within_half_window_from_start(32767, 65535)];
+        assert![!is_seq_within_half_window_from_start(32766, 65535)];
+        assert![is_seq_within_half_window_from_start(32768, 65535)];
+        assert![is_seq_within_half_window_from_start(32769, 0)];
     }
 
     #[test]

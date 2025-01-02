@@ -1,6 +1,6 @@
 use std::clone::Clone;
 
-use crate::packet::SequenceNumber;
+use crate::packet::{SequenceNumber, SEQUENCE_MID};
 
 pub use self::reassembly_data::ReassemblyData;
 
@@ -16,11 +16,11 @@ pub struct SequenceBuffer<T: Clone + Default> {
 
 impl<T: Clone + Default> SequenceBuffer<T> {
     /// Creates a SequenceBuffer with a desired capacity.
-    pub fn with_capacity(size: u16) -> Self {
+    pub fn with_capacity(size: usize) -> Self {
         Self {
             sequence_num: 0,
-            entry_sequences: vec![None; size as usize].into_boxed_slice(),
-            entries: vec![T::default(); size as usize].into_boxed_slice(),
+            entry_sequences: vec![None; size].into_boxed_slice(),
+            entries: vec![T::default(); size].into_boxed_slice(),
         }
     }
 
@@ -45,7 +45,7 @@ impl<T: Clone + Default> SequenceBuffer<T> {
         if sequence_less_than(
             sequence_num,
             self.sequence_num
-                .wrapping_sub(self.entry_sequences.len() as u16),
+                .wrapping_sub(self.entry_sequences.len() as SequenceNumber),
         ) {
             return None;
         }
@@ -94,7 +94,7 @@ impl<T: Clone + Default> SequenceBuffer<T> {
 
         if finish_sequence - start_sequence < self.entry_sequences.len() as u32 {
             for sequence in start_sequence..=finish_sequence {
-                self.remove(sequence as u16);
+                self.remove(sequence as SequenceNumber);
             }
         } else {
             for index in 0..self.entry_sequences.len() {
@@ -110,16 +110,17 @@ impl<T: Clone + Default> SequenceBuffer<T> {
     }
 }
 
-pub fn sequence_greater_than(s1: u16, s2: u16) -> bool {
-    ((s1 > s2) && (s1 - s2 <= 32768)) || ((s1 < s2) && (s2 - s1 > 32768))
+pub fn sequence_greater_than(s1: SequenceNumber, s2: SequenceNumber) -> bool {
+    ((s1 > s2) && (s1 - s2 <= SEQUENCE_MID)) || ((s1 < s2) && (s2 - s1 > SEQUENCE_MID))
 }
 
-pub fn sequence_less_than(s1: u16, s2: u16) -> bool {
+pub fn sequence_less_than(s1: SequenceNumber, s2: SequenceNumber) -> bool {
     sequence_greater_than(s2, s1)
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::packet::SequenceNumber;
     use crate::sequence_buffer::sequence_greater_than;
     use crate::sequence_buffer::sequence_less_than;
 
@@ -137,14 +138,14 @@ mod tests {
         assert!(sequence_greater_than(32768, 0));
         assert!(sequence_less_than(32769, 0));
 
-        // in this case, 0 is greater than u16 max because we're likely at the wrapping case
-        assert!(sequence_greater_than(0, u16::max_value()));
+        // in this case, 0 is greater than max because we're likely at the wrapping case
+        assert!(sequence_greater_than(0, SequenceNumber::max_value()));
     }
 
     #[test]
     fn max_sequence_number_should_not_exist_by_default() {
         let buffer: SequenceBuffer<DataStub> = SequenceBuffer::with_capacity(2);
-        assert!(!buffer.exists(u16::max_value()));
+        assert!(!buffer.exists(SequenceNumber::max_value()));
     }
 
     #[test]
@@ -219,9 +220,9 @@ mod tests {
         assert!(!buffer.exists(2));
 
         // insert respects boundary wrap. Both of these would be earlier than 11
-        buffer.insert(u16::max_value(), DataStub);
+        buffer.insert(SequenceNumber::max_value(), DataStub);
         buffer.insert(0, DataStub);
-        assert!(!buffer.exists(u16::max_value()));
+        assert!(!buffer.exists(SequenceNumber::max_value()));
         assert!(!buffer.exists(0));
 
         assert_eq!(count_entries(&buffer), 1);

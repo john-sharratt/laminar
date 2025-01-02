@@ -2,7 +2,8 @@ use std::io::Cursor;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use crate::error::Result;
+use crate::packet::FragmentNumber;
+use crate::{error::Result, packet::SequenceNumber};
 use crate::net::constants::FRAGMENT_HEADER_SIZE;
 
 use super::{HeaderReader, HeaderWriter};
@@ -10,14 +11,14 @@ use super::{HeaderReader, HeaderWriter};
 #[derive(Copy, Clone, Debug)]
 /// This header represents a fragmented packet header.
 pub struct FragmentHeader {
-    sequence: u16,
-    id: u8,
-    num_fragments: u8,
+    sequence: SequenceNumber,
+    id: FragmentNumber,
+    num_fragments: FragmentNumber,
 }
 
 impl FragmentHeader {
     /// Create new fragment with the given packet header.
-    pub fn new(seq: u16, id: u8, num_fragments: u8) -> Self {
+    pub fn new(seq: SequenceNumber, id: FragmentNumber, num_fragments: FragmentNumber) -> Self {
         FragmentHeader {
             id,
             num_fragments,
@@ -26,17 +27,17 @@ impl FragmentHeader {
     }
 
     /// Returns the id of this fragment.
-    pub fn id(&self) -> u8 {
+    pub fn id(&self) -> FragmentNumber {
         self.id
     }
 
     /// Returns the sequence number of this fragment.
-    pub fn sequence(&self) -> u16 {
+    pub fn sequence(&self) -> SequenceNumber {
         self.sequence
     }
 
     /// Returns the total number of fragments in the packet this fragment is part of.
-    pub fn fragment_count(&self) -> u8 {
+    pub fn fragment_count(&self) -> FragmentNumber {
         self.num_fragments
     }
 }
@@ -71,7 +72,7 @@ impl HeaderReader for FragmentHeader {
     }
 
     /// Returns the size of this header.
-    fn size() -> u8 {
+    fn size() -> usize {
         FRAGMENT_HEADER_SIZE
     }
 }

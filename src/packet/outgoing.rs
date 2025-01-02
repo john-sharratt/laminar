@@ -8,6 +8,8 @@ use crate::{
     },
 };
 
+use super::{AckFieldNumber, FragmentNumber, SequenceNumber, StreamNumber};
+
 /// Builder that could be used to construct an outgoing laminar packet.
 pub struct OutgoingPacketBuilder<'p> {
     header: Vec<u8>,
@@ -24,7 +26,7 @@ impl<'p> OutgoingPacketBuilder<'p> {
     }
 
     /// Adds the `FragmentHeader` to the header.
-    pub fn with_fragment_header(mut self, packet_seq: u16, id: u8, num_fragments: u8) -> Self {
+    pub fn with_fragment_header(mut self, packet_seq: SequenceNumber, id: FragmentNumber, num_fragments: FragmentNumber) -> Self {
         let header = FragmentHeader::new(packet_seq, id, num_fragments);
 
         header
@@ -52,9 +54,9 @@ impl<'p> OutgoingPacketBuilder<'p> {
     /// Adds the [`AckedPacketHeader`](./headers/acked_packet_header) to the header.
     pub fn with_acknowledgment_header(
         mut self,
-        seq_num: u16,
-        last_seq: u16,
-        bit_field: u32,
+        seq_num: SequenceNumber,
+        last_seq: SequenceNumber,
+        bit_field: AckFieldNumber,
     ) -> Self {
         let header = AckedPacketHeader::new(seq_num, last_seq, bit_field);
         header
@@ -68,7 +70,7 @@ impl<'p> OutgoingPacketBuilder<'p> {
     ///
     /// - `arranging_id` = identifier for this packet that needs to be sequenced.
     /// - `stream_id` = stream on which this packet will be sequenced. If `None` than the a default stream will be used.
-    pub fn with_sequencing_header(mut self, arranging_id: u16, stream_id: Option<u8>) -> Self {
+    pub fn with_sequencing_header(mut self, arranging_id: SequenceNumber, stream_id: Option<StreamNumber>) -> Self {
         let header =
             ArrangingHeader::new(arranging_id, stream_id.unwrap_or(DEFAULT_SEQUENCING_STREAM));
 
@@ -83,7 +85,7 @@ impl<'p> OutgoingPacketBuilder<'p> {
     ///
     /// - `arranging_id` = identifier for this packet that needs to be ordered.
     /// - `stream_id` = stream on which this packet will be ordered. If `None` than the a default stream will be used.
-    pub fn with_ordering_header(mut self, arranging_id: u16, stream_id: Option<u8>) -> Self {
+    pub fn with_ordering_header(mut self, arranging_id: SequenceNumber, stream_id: Option<StreamNumber>) -> Self {
         let header =
             ArrangingHeader::new(arranging_id, stream_id.unwrap_or(DEFAULT_ORDERING_STREAM));
 

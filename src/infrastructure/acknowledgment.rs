@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::packet::{OrderingGuarantee, PacketType, SequenceNumber};
 use crate::sequence_buffer::{sequence_greater_than, sequence_less_than, SequenceBuffer};
 
-const REDUNDANT_PACKET_ACKS_SIZE: u16 = 32;
+const REDUNDANT_PACKET_ACKS_SIZE: usize = 32;
 const DEFAULT_SEND_PACKETS_SIZE: usize = 256;
 
 /// Responsible for handling the acknowledgment of packets.
@@ -14,7 +14,7 @@ pub struct AcknowledgmentHandler {
     remote_ack_sequence_num: SequenceNumber,
     // Using a `Hashmap` to track every packet we send out so we can ensure that we can resend when
     // dropped.
-    sent_packets: HashMap<u16, SentPacket>,
+    sent_packets: HashMap<SequenceNumber, SentPacket>,
     // However, we can only reasonably ack up to `REDUNDANT_PACKET_ACKS_SIZE + 1` packets on each
     // message we send so this should be that large.
     received_packets: SequenceBuffer<ReceivedPacket>,
@@ -25,15 +25,15 @@ impl AcknowledgmentHandler {
     pub fn new() -> Self {
         AcknowledgmentHandler {
             sequence_number: 0,
-            remote_ack_sequence_num: u16::max_value(),
+            remote_ack_sequence_num: SequenceNumber::max_value(),
             sent_packets: HashMap::with_capacity(DEFAULT_SEND_PACKETS_SIZE),
             received_packets: SequenceBuffer::with_capacity(REDUNDANT_PACKET_ACKS_SIZE + 1),
         }
     }
 
     /// Returns the current number of not yet acknowledged packets
-    pub fn packets_in_flight(&self) -> u16 {
-        self.sent_packets.len() as u16
+    pub fn packets_in_flight(&self) -> usize {
+        self.sent_packets.len()
     }
 
     /// Returns the next sequence number to send.
@@ -49,13 +49,13 @@ impl AcknowledgmentHandler {
     /// Returns the `ack_bitfield` corresponding to which of the past 32 packets we've
     /// successfully received.
     pub fn ack_bitfield(&self) -> u32 {
-        let most_recent_remote_seq_num: u16 = self.remote_sequence_num();
+        let most_recent_remote_seq_num: SequenceNumber = self.remote_sequence_num();
         let mut ack_bitfield: u32 = 0;
         let mut mask: u32 = 1;
 
         // iterate the past `REDUNDANT_PACKET_ACKS_SIZE` received packets and set the corresponding
         // bit for each packet which exists in the buffer.
-        for i in 1..=REDUNDANT_PACKET_ACKS_SIZE {
+        for i in 1..=REDUNDANT_PACKET_ACKS_SIZE as SequenceNumber {
             let sequence = most_recent_remote_seq_num.wrapping_sub(i);
             if self.received_packets.exists(sequence) {
                 ack_bitfield |= mask;
@@ -72,8 +72,8 @@ impl AcknowledgmentHandler {
     /// - Update dropped packets
     pub fn process_incoming(
         &mut self,
-        remote_seq_num: u16,
-        remote_ack_seq: u16,
+        remote_seq_num: SequenceNumber,
+        remote_ack_seq: SequenceNumber,
         mut remote_ack_field: u32,
     ) {
         // ensure that `self.remote_ack_sequence_num` is always increasing (with wrapping)
@@ -89,7 +89,7 @@ impl AcknowledgmentHandler {
 
         // The `remote_ack_field` is going to include whether or not the past 32 packets have been
         // received successfully. If so, we have no need to resend old packets.
-        for i in 1..=REDUNDANT_PACKET_ACKS_SIZE {
+        for i in 1..=REDUNDANT_PACKET_ACKS_SIZE as SequenceNumber {
             let ack_sequence = remote_ack_seq.wrapping_sub(i);
             if remote_ack_field & 1 == 1 {
                 self.sent_packets.remove(&ack_sequence);
@@ -130,7 +130,7 @@ impl AcknowledgmentHandler {
             .into_iter()
             .filter(|s| {
                 if sequence_less_than(*s, remote_ack_sequence) {
-                    remote_ack_sequence.wrapping_sub(*s) > REDUNDANT_PACKET_ACKS_SIZE
+                    remote_ack_sequence.wrapping_sub(*s) > REDUNDANT_PACKET_ACKS_SIZE as SequenceNumber
                 } else {
                     false
                 }
@@ -159,7 +159,7 @@ mod test {
 
     use crate::infrastructure::acknowledgment::ReceivedPacket;
     use crate::infrastructure::{AcknowledgmentHandler, SentPacket};
-    use crate::packet::{OrderingGuarantee, PacketType};
+    use crate::packet::{OrderingGuarantee, PacketType, SequenceNumber};
 
     #[test]
     fn increment_local_seq_num_on_process_outgoing() {
@@ -179,7 +179,7 @@ mod test {
     #[test]
     fn local_seq_num_wraps_on_overflow() {
         let mut handler = AcknowledgmentHandler::new();
-        handler.sequence_number = u16::max_value();
+        handler.sequence_number = SequenceNumber::max_value();
         handler.process_outgoing(
             PacketType::Packet,
             vec![].as_slice(),
@@ -230,7 +230,7 @@ mod test {
             None,
         );
 
-        static ARBITRARY: u16 = 23;
+        static ARBITRARY: SequenceNumber = 23;
         handler.process_incoming(ARBITRARY, 40, 0);
 
         assert_eq!(
@@ -356,7 +356,7 @@ mod test {
         handler.process_incoming(1, 0, 1);
         assert_eq!(handler.remote_ack_sequence_num, 0);
         // earlier packet received
-        handler.process_incoming(0, u16::max_value(), 0);
+        handler.process_incoming(0, SequenceNumber::max_value(), 0);
         assert_eq!(handler.remote_ack_sequence_num, 0);
     }
 }

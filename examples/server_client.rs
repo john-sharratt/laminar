@@ -36,6 +36,9 @@ fn server() -> Result<(), ErrorKind> {
                         ))
                         .expect("This should send");
                 }
+                SocketEvent::Overload(address) => {
+                    println!("Client overloaded: {:?}", address);
+                }
                 SocketEvent::Timeout(address) => {
                     println!("Client timed out: {:?}", address);
                 }

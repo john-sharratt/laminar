@@ -2,7 +2,8 @@ use std::io::Cursor;
 
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 
-use crate::error::Result;
+use crate::packet::AckFieldNumber;
+use crate::{error::Result, packet::SequenceNumber};
 use crate::net::constants::ACKED_PACKET_HEADER;
 
 use super::{HeaderReader, HeaderWriter};
@@ -11,18 +12,18 @@ use super::{HeaderReader, HeaderWriter};
 /// This header provides reliability information.
 pub struct AckedPacketHeader {
     /// This is the sequence number so that we can know where in the sequence of packages this packet belongs.
-    pub seq: u16,
+    pub seq: SequenceNumber,
     // This is the last acknowledged sequence number.
-    ack_seq: u16,
+    ack_seq: SequenceNumber,
     // This is an bitfield of all last 32 acknowledged packages
-    ack_field: u32,
+    ack_field: AckFieldNumber,
 }
 
 impl AckedPacketHeader {
     /// When we compose packet headers, the local sequence becomes the sequence number of the packet, and the remote sequence becomes the ack.
     /// The ack bitfield is calculated by looking into a queue of up to 33 packets, containing sequence numbers in the range [remote sequence - 32, remote sequence].
     /// We set bit n (in [1,32]) in ack bits to 1 if the sequence number remote sequence - n is in the received queue.
-    pub fn new(seq_num: u16, last_seq: u16, bit_field: u32) -> AckedPacketHeader {
+    pub fn new(seq_num: SequenceNumber, last_seq: SequenceNumber, bit_field: AckFieldNumber) -> AckedPacketHeader {
         AckedPacketHeader {
             seq: seq_num,
             ack_seq: last_seq,
@@ -32,17 +33,17 @@ impl AckedPacketHeader {
 
     /// Returns the sequence number from this packet.
     #[allow(dead_code)]
-    pub fn sequence(&self) -> u16 {
+    pub fn sequence(&self) -> SequenceNumber {
         self.seq
     }
 
     /// Returns bit field of all last 32 acknowledged packages.
-    pub fn ack_field(&self) -> u32 {
+    pub fn ack_field(&self) -> AckFieldNumber {
         self.ack_field
     }
 
     /// Returns last acknowledged sequence number.
-    pub fn ack_seq(&self) -> u16 {
+    pub fn ack_seq(&self) -> SequenceNumber {
         self.ack_seq
     }
 }
@@ -73,7 +74,7 @@ impl HeaderReader for AckedPacketHeader {
         })
     }
 
-    fn size() -> u8 {
+    fn size() -> usize {
         ACKED_PACKET_HEADER
     }
 }
@@ -94,7 +95,7 @@ mod tests {
         assert_eq!(buffer[1], 1);
         assert_eq!(buffer[3], 2);
         assert_eq!(buffer[7], 3);
-        assert_eq!(buffer.len() as u8, AckedPacketHeader::size());
+        assert_eq!(buffer.len(), AckedPacketHeader::size());
     }
 
     #[test]

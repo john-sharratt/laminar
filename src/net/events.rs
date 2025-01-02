@@ -14,6 +14,8 @@ pub enum SocketEvent {
     ///
     /// Clients are uniquely identified by the `ip:port` combination at this layer.
     Connect(SockAddr),
+    /// The client has too many packets in flight and will be terminated.
+    Overload(SockAddr),
     /// The client has been idling for longer than the `idle_connection_timeout` time.
     /// You can control the timeout in the config.
     Timeout(SockAddr),
