@@ -114,7 +114,7 @@ impl<'s> PacketReader<'s> {
 #[cfg(test)]
 mod tests {
     use crate::packet::header::{AckedPacketHeader, HeaderReader, StandardHeader};
-    use crate::packet::{DeliveryGuarantee, OrderingGuarantee, PacketReader, PacketType, SequenceNumber, StreamNumber};
+    use crate::packet::{DeliveryGuarantee, FragmentNumber, OrderingGuarantee, PacketReader, PacketType, SequenceNumber, StreamNumber};
 
     #[test]
     fn can_read_bytes() {
@@ -150,7 +150,12 @@ mod tests {
     fn assure_read_acknowledgment_header() {
         // standard header, acked header
         let reliable_ordered_payload: Vec<u8> =
-            vec![vec![0, 1, 0, 1, 2], vec![0, 1, 0, 2, 0, 0, 0, 3]].concat();
+            vec![
+                vec![0, 0, 0, 1, 0],
+                (1 as SequenceNumber).to_be_bytes().to_vec(),
+                (2 as SequenceNumber).to_be_bytes().to_vec(),
+                vec![0, 0, 0, 3]
+            ].concat();
 
         let mut reader = PacketReader::new(reliable_ordered_payload.as_slice());
 
@@ -166,8 +171,12 @@ mod tests {
         // standard header, acked header, arranging header
         let reliable_ordered_payload: Vec<u8> = vec![
             vec![0, 1, 0, 1, 2],
-            vec![0, 1, 0, 3],
-            vec![0, 1, 0, 2, 0, 0, 0, 3],
+            (1 as SequenceNumber).to_be_bytes().to_vec(),
+            (0 as FragmentNumber).to_be_bytes().to_vec(),
+            (3 as FragmentNumber).to_be_bytes().to_vec(),
+            (1 as SequenceNumber).to_be_bytes().to_vec(),
+            (2 as SequenceNumber).to_be_bytes().to_vec(),
+            vec![0, 0, 0, 3],
         ]
         .concat();
 
@@ -220,7 +229,9 @@ mod tests {
         // standard header, acked header, arranging header
         let reliable_ordered_payload: Vec<u8> = vec![
             vec![0, 1, 0, 1, 2],
-            vec![0, 1, 0, 2, 0, 0, 0, 3],
+            (1 as SequenceNumber).to_be_bytes().to_vec(),
+            (2 as SequenceNumber).to_be_bytes().to_vec(),
+            vec![0, 0, 0, 3],
             (1 as SequenceNumber).to_be_bytes().to_vec(),
             (2 as StreamNumber).to_be_bytes().to_vec(),
         ]
@@ -256,7 +267,12 @@ mod tests {
     fn assure_read_reliable_unordered_header() {
         // standard header, acked header, arranging header
         let reliable_ordered_payload: Vec<u8> =
-            vec![vec![0, 1, 0, 1, 2], vec![0, 1, 0, 2, 0, 0, 0, 3]].concat();
+            vec![
+                vec![0, 1, 0, 1, 2],
+                (1 as SequenceNumber).to_be_bytes().to_vec(),
+                (2 as SequenceNumber).to_be_bytes().to_vec(),
+                vec![0, 0, 0, 3]
+            ].concat();
         let mut reader = PacketReader::new(reliable_ordered_payload.as_slice());
 
         let standard_header = reader.read_standard_header().unwrap();

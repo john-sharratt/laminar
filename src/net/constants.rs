@@ -27,4 +27,4 @@ pub const DEFAULT_MTU: u16 = 1452;
 /// This is the current protocol version.
 ///
 /// Incremental monolithic protocol number.
-pub const PROTOCOL_VERSION: u16 = 2;
+pub const PROTOCOL_VERSION: u16 = 3;

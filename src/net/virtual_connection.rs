@@ -461,7 +461,7 @@ mod tests {
     use crate::config::Config;
     use crate::net::constants;
     use crate::packet::header::{AckedPacketHeader, ArrangingHeader, HeaderWriter, StandardHeader};
-    use crate::packet::{DeliveryGuarantee, OrderingGuarantee, Packet, PacketInfo, PacketType, SequenceNumber};
+    use crate::packet::{DeliveryGuarantee, EnumConverter, FragmentNumber, OrderingGuarantee, Packet, PacketInfo, PacketType, SequenceNumber};
 
     use super::VirtualConnection;
 
@@ -507,12 +507,43 @@ mod tests {
             .write_u16::<BigEndian>(PROTOCOL_VERSION)
             .unwrap();
 
-        let standard_header = [protocol_version, vec![1, 1, 2]].concat();
+        let standard_header = [
+            protocol_version,
+            PacketType::Fragment.to_u8().to_be_bytes().to_vec(),
+            vec![1, 2]
+        ].concat();
 
-        let acked_header = vec![0, 0, 0, 4, 0, 0, 255, 255, 0, 0, 0, 0];
-        let first_fragment = vec![0, 0, 1, 4];
-        let second_fragment = vec![0, 0, 2, 4];
-        let third_fragment = vec![0, 0, 3, 4];
+        let acked_header = vec!
+            [
+                (0 as SequenceNumber).to_be_bytes().to_vec(),
+                (0 as FragmentNumber).to_be_bytes().to_vec(),
+                (4 as FragmentNumber).to_be_bytes().to_vec(),
+                (0 as SequenceNumber).to_be_bytes().to_vec(),
+                (0 as SequenceNumber).wrapping_sub(1).to_be_bytes().to_vec(),
+                vec![0, 0, 0, 0]
+            ]
+            .concat();
+        let first_fragment = vec!
+            [
+                (0 as SequenceNumber).to_be_bytes().to_vec(),
+                (1 as FragmentNumber).to_be_bytes().to_vec(),
+                (4 as FragmentNumber).to_be_bytes().to_vec(),
+            ]
+            .concat();
+        let second_fragment = vec!
+            [
+                (0 as SequenceNumber).to_be_bytes().to_vec(),
+                (2 as FragmentNumber).to_be_bytes().to_vec(),
+                (4 as FragmentNumber).to_be_bytes().to_vec(),
+            ]
+            .concat();
+        let third_fragment = vec!
+            [
+                (0 as SequenceNumber).to_be_bytes().to_vec(),                
+                (3 as FragmentNumber).to_be_bytes().to_vec(),
+                (4 as FragmentNumber).to_be_bytes().to_vec(),
+            ]
+            .concat();
 
         let mut connection = create_virtual_connection();
         let packet = connection
@@ -836,7 +867,14 @@ mod tests {
 
         let standard_header = [protocol_version, vec![1, 1, 2]].concat();
 
-        let acked_header = vec![0, 0, 255, 4, 0, 0, 255, 255, 0, 0, 0, 0];
+        let acked_header = vec![
+            (0 as SequenceNumber).to_be_bytes().to_vec(),
+            (FragmentNumber::MAX).to_be_bytes().to_vec(),
+            (4 as FragmentNumber).to_be_bytes().to_vec(),
+            (0 as SequenceNumber).to_be_bytes().to_vec(),
+            (0 as SequenceNumber).wrapping_sub(1).to_be_bytes().to_vec(),
+            vec![0, 0, 0, 0]
+        ].concat();
 
         use crate::error::{ErrorKind, FragmentErrorKind};
 
@@ -852,8 +890,8 @@ mod tests {
             Err(ErrorKind::FragmentError(FragmentErrorKind::TooManyFragments)) => {
                 // Ok
             }
-            _ => {
-                panic!["Supposed to get a fragment error"];
+            res => {
+                panic!["Supposed to get a fragment error ({:?})", res];
             }
         }
     }

@@ -300,7 +300,7 @@ impl<'a, T> Iterator for IterMut<'a, T> {
 
 #[cfg(test)]
 mod tests {
-    use crate::packet::{SequenceNumber, StreamNumber};
+    use crate::packet::{SequenceNumber, StreamNumber, SEQUENCE_MID};
 
     use super::{is_seq_within_half_window_from_start, Arranging, ArrangingSystem, OrderingSystem};
 
@@ -343,11 +343,13 @@ mod tests {
         let mut system: OrderingSystem<()> = OrderingSystem::new();
 
         let stream = system.get_or_create_stream(1);
-        for idx in 0..=65500 {
+        stream.expected_index = SequenceNumber::MAX - 200;
+
+        for idx in (SequenceNumber::MAX - 200)..=(SequenceNumber::MAX - 101) {
             assert![stream.arrange(idx, ()).is_some()];
         }
         assert![stream.arrange(123, ()).is_none()];
-        for idx in 65501..=65535u32 {
+        for idx in (SequenceNumber::MAX - 100)..=SequenceNumber::MAX {
             assert![stream.arrange(idx, ()).is_some()];
         }
         assert![stream.arrange(0, ()).is_some()];
@@ -372,17 +374,17 @@ mod tests {
     }
 
     #[test]
-    fn u16_forward_half() {
-        assert![!is_seq_within_half_window_from_start(0, 65535)];
-        assert![!is_seq_within_half_window_from_start(0, 32769)];
+    fn seq_forward_half() {
+        assert![!is_seq_within_half_window_from_start(0, SequenceNumber::MAX)];
+        assert![!is_seq_within_half_window_from_start(0, SEQUENCE_MID + 1)];
 
-        assert![is_seq_within_half_window_from_start(0, 32768)];
-        assert![is_seq_within_half_window_from_start(0, 32767)];
+        assert![is_seq_within_half_window_from_start(0, SEQUENCE_MID)];
+        assert![is_seq_within_half_window_from_start(0, SEQUENCE_MID - 1)];
 
-        assert![is_seq_within_half_window_from_start(32767, 65535)];
-        assert![!is_seq_within_half_window_from_start(32766, 65535)];
-        assert![is_seq_within_half_window_from_start(32768, 65535)];
-        assert![is_seq_within_half_window_from_start(32769, 0)];
+        assert![is_seq_within_half_window_from_start(SEQUENCE_MID - 1, SequenceNumber::MAX)];
+        assert![!is_seq_within_half_window_from_start(SEQUENCE_MID - 2, SequenceNumber::MAX)];
+        assert![is_seq_within_half_window_from_start(SEQUENCE_MID, SequenceNumber::MAX)];
+        assert![is_seq_within_half_window_from_start(SEQUENCE_MID + 1, 0)];
     }
 
     #[test]

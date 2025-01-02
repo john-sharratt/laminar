@@ -85,6 +85,7 @@ mod tests {
 
     use crate::net::constants::ACKED_PACKET_HEADER;
     use crate::packet::header::{AckedPacketHeader, HeaderReader, HeaderWriter};
+    use crate::packet::{AckFieldNumber, SequenceNumber};
 
     #[test]
     fn serialize() {
@@ -92,15 +93,19 @@ mod tests {
         let header = AckedPacketHeader::new(1, 2, 3);
         assert![header.parse(&mut buffer).is_ok()];
 
-        assert_eq!(buffer[1], 1);
-        assert_eq!(buffer[3], 2);
-        assert_eq!(buffer[7], 3);
+        assert_eq!(buffer[size_of::<SequenceNumber>() - 1], 1);
+        assert_eq!(buffer[(size_of::<SequenceNumber>() * 2) - 1], 2);
+        assert_eq!(buffer[(size_of::<SequenceNumber>() * 2 + size_of::<AckFieldNumber>()) - 1], 3);
         assert_eq!(buffer.len(), AckedPacketHeader::size());
     }
 
     #[test]
     fn deserialize() {
-        let buffer = vec![0, 1, 0, 2, 0, 0, 0, 3];
+        let buffer = vec![
+            (1 as SequenceNumber).to_be_bytes().to_vec(),
+            (2 as SequenceNumber).to_be_bytes().to_vec(),
+            vec![0, 0, 0, 3]
+        ].concat();
 
         let mut cursor = Cursor::new(buffer.as_slice());
 

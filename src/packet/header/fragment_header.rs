@@ -83,6 +83,7 @@ mod tests {
 
     use crate::net::constants::FRAGMENT_HEADER_SIZE;
     use crate::packet::header::{FragmentHeader, HeaderReader, HeaderWriter};
+    use crate::packet::{FragmentNumber, SequenceNumber};
 
     #[test]
     fn serialize() {
@@ -90,14 +91,18 @@ mod tests {
         let header = FragmentHeader::new(1, 2, 3);
         assert![header.parse(&mut buffer).is_ok()];
 
-        assert_eq!(buffer[1], 1);
-        assert_eq!(buffer[2], 2);
-        assert_eq!(buffer[3], 3);
+        assert_eq!(buffer[(size_of::<SequenceNumber>()) - 1], 1);
+        assert_eq!(buffer[(size_of::<SequenceNumber>() + size_of::<FragmentNumber>()) - 1], 2);
+        assert_eq!(buffer[(size_of::<SequenceNumber>() + size_of::<FragmentNumber>() * 2) - 1], 3);
     }
 
     #[test]
     fn deserialize() {
-        let buffer = vec![0, 1, 2, 3];
+        let buffer = vec![
+            (1 as SequenceNumber).to_be_bytes().to_vec(),
+            (2 as FragmentNumber).to_be_bytes().to_vec(),
+            (3 as FragmentNumber).to_be_bytes().to_vec(),
+        ].concat();
 
         let mut cursor = Cursor::new(buffer.as_slice());
 

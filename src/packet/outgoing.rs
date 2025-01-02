@@ -127,7 +127,7 @@ impl<'p> OutgoingPacket<'p> {
 
 #[cfg(test)]
 mod tests {
-    use crate::packet::{PacketType, SequenceNumber, StreamNumber};
+    use crate::packet::{FragmentNumber, PacketType, SequenceNumber, StreamNumber};
     use crate::packet::{DeliveryGuarantee, OrderingGuarantee, OutgoingPacketBuilder};
 
     fn test_payload() -> Vec<u8> {
@@ -142,7 +142,12 @@ mod tests {
             .with_fragment_header(0, 0, 0)
             .build();
 
-        let expected: Vec<u8> = [vec![0, 0, 0, 0], test_payload()].concat().to_vec();
+        let expected: Vec<u8> = [
+            (0 as SequenceNumber).to_be_bytes().to_vec(),
+            (0 as FragmentNumber).to_be_bytes().to_vec(),
+            (0 as FragmentNumber).to_be_bytes().to_vec(),
+            test_payload()
+        ].concat().to_vec();
 
         assert_eq!(outgoing.contents().to_vec(), expected);
     }
@@ -172,7 +177,12 @@ mod tests {
             .with_acknowledgment_header(1, 2, 3)
             .build();
 
-        let expected: Vec<u8> = [vec![0, 1, 0, 2, 0, 0, 0, 3], test_payload()]
+        let expected: Vec<u8> = [
+                (1 as SequenceNumber).to_be_bytes().to_vec(),
+                (2 as SequenceNumber).to_be_bytes().to_vec(),
+                vec![0, 0, 0, 3],
+                test_payload()
+            ]
             .concat()
             .to_vec();
 
