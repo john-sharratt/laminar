@@ -129,6 +129,8 @@ pub enum FragmentErrorKind {
     PacketHeaderNotFound,
     /// Max number of allowed fragments has been exceeded
     ExceededMaxFragments,
+    /// We received too many fragments
+    TooManyFragments,
     /// This fragment was already processed
     AlreadyProcessedFragment,
     /// Attempted to fragment with an incorrect number of fragments
@@ -150,6 +152,10 @@ impl Display for FragmentErrorKind {
             FragmentErrorKind::ExceededMaxFragments => write!(
                 fmt,
                 "The total numbers of fragments are bigger than the allowed fragments."
+            ),
+            FragmentErrorKind::TooManyFragments => write!(
+                fmt,
+                "The total numbers of fragments received is more than we were expecting."
             ),
             FragmentErrorKind::AlreadyProcessedFragment => {
                 write!(fmt, "The fragment received was already processed.")

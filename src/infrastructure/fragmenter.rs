@@ -122,7 +122,7 @@ impl Fragmentation {
             }
 
             if usize::from(fragment_header.id()) >= reassembly_data.fragments_received.len() {
-                return Err(FragmentErrorKind::ExceededMaxFragments.into());
+                return Err(FragmentErrorKind::TooManyFragments.into());
             }
 
             if reassembly_data.fragments_received[usize::from(fragment_header.id())] {

@@ -849,7 +849,7 @@ mod tests {
         );
 
         match result {
-            Err(ErrorKind::FragmentError(FragmentErrorKind::ExceededMaxFragments)) => {
+            Err(ErrorKind::FragmentError(FragmentErrorKind::TooManyFragments)) => {
                 // Ok
             }
             _ => {
