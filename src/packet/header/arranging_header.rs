@@ -40,7 +40,7 @@ impl HeaderWriter for ArrangingHeader {
 
     fn parse(&self, buffer: &mut Vec<u8>) -> Self::Output {
         buffer.write_u16::<BigEndian>(self.arranging_id)?;
-        buffer.write_u8(self.stream_id)?;
+        buffer.write_u16::<BigEndian>(self.stream_id)?;
 
         Ok(())
     }
@@ -51,7 +51,7 @@ impl HeaderReader for ArrangingHeader {
 
     fn read(rdr: &mut Cursor<&[u8]>) -> Self::Header {
         let arranging_id = rdr.read_u16::<BigEndian>()?;
-        let stream_id = rdr.read_u8()?;
+        let stream_id = rdr.read_u16::<BigEndian>()?;
 
         let header = ArrangingHeader {
             arranging_id,
@@ -73,6 +73,7 @@ mod tests {
 
     use crate::net::constants::ARRANGING_PACKET_HEADER;
     use crate::packet::header::{ArrangingHeader, HeaderReader, HeaderWriter};
+    use crate::packet::{SequenceNumber, StreamNumber};
 
     #[test]
     fn serialize() {
@@ -80,13 +81,16 @@ mod tests {
         let header = ArrangingHeader::new(1, 2);
         assert![header.parse(&mut buffer).is_ok()];
 
-        assert_eq!(buffer[1], 1);
-        assert_eq!(buffer[2], 2);
+        assert_eq!(buffer[size_of::<SequenceNumber>() - 1], 1);
+        assert_eq!(buffer[size_of::<SequenceNumber>() + size_of::<StreamNumber>() - 1], 2);
     }
 
     #[test]
     fn deserialize() {
-        let buffer = vec![0, 1, 2];
+        let mut buffer = Vec::new();
+        buffer.extend_from_slice((1 as SequenceNumber).to_be_bytes().as_ref());
+        buffer.extend_from_slice((2 as StreamNumber).to_be_bytes().as_ref());
+        
         let mut cursor = Cursor::new(buffer.as_slice());
 
         let header = ArrangingHeader::read(&mut cursor).unwrap();

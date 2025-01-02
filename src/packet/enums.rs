@@ -5,6 +5,8 @@ use crate::{
     packet::EnumConverter,
 };
 
+use super::StreamNumber;
+
 /// Enum to specify how a packet should be delivered.
 #[derive(Copy, Clone, Debug, PartialOrd, PartialEq, Eq)]
 pub enum DeliveryGuarantee {
@@ -44,9 +46,9 @@ pub enum OrderingGuarantee {
     #[default]
     None,
     /// Packets will be arranged in sequence.
-    Sequenced(Option<u8>),
+    Sequenced(Option<StreamNumber>),
     /// Packets will be arranged in order.
-    Ordered(Option<u8>),
+    Ordered(Option<StreamNumber>),
 }
 
 impl EnumConverter for OrderingGuarantee {

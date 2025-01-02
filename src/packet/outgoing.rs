@@ -127,7 +127,7 @@ impl<'p> OutgoingPacket<'p> {
 
 #[cfg(test)]
 mod tests {
-    use crate::packet::PacketType;
+    use crate::packet::{PacketType, SequenceNumber, StreamNumber};
     use crate::packet::{DeliveryGuarantee, OrderingGuarantee, OutgoingPacketBuilder};
 
     fn test_payload() -> Vec<u8> {
@@ -155,7 +155,11 @@ mod tests {
             .with_sequencing_header(1, Some(2))
             .build();
 
-        let expected: Vec<u8> = [vec![0, 1, 2], test_payload()].concat().to_vec();
+        let mut buffer = Vec::new();
+        buffer.extend_from_slice((1 as SequenceNumber).to_be_bytes().as_ref());
+        buffer.extend_from_slice((2 as StreamNumber).to_be_bytes().as_ref());
+
+        let expected: Vec<u8> = [buffer, test_payload()].concat().to_vec();
 
         assert_eq!(outgoing.contents().to_vec(), expected);
     }

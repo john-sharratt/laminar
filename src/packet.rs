@@ -14,7 +14,7 @@ mod packet_reader;
 mod packet_structure;
 mod process_result;
 
-pub type StreamNumber = u8;
+pub type StreamNumber = u16;
 pub type FragmentNumber = u8;
 pub type SequenceNumber = u16;
 pub type AckFieldNumber = u32;

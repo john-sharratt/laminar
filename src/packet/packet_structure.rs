@@ -121,7 +121,7 @@ impl Packet {
     ///
     /// # Remark
     /// - When `stream_id` is specified as `None` the default stream will be used; if you are not sure what this is you can leave it at `None`.
-    pub fn reliable_ordered(addr: SockAddr, payload: Vec<u8>, stream_id: Option<u8>) -> Packet {
+    pub fn reliable_ordered(addr: SockAddr, payload: Vec<u8>, stream_id: Option<StreamNumber>) -> Packet {
         Packet {
             addr,
             payload: payload.into_boxed_slice(),
@@ -145,7 +145,7 @@ impl Packet {
     ///
     /// # Remark
     /// - When `stream_id` is specified as `None` the default stream will be used; if you are not sure what this is you can leave it at `None`.
-    pub fn reliable_sequenced(addr: SockAddr, payload: Vec<u8>, stream_id: Option<u8>) -> Packet {
+    pub fn reliable_sequenced(addr: SockAddr, payload: Vec<u8>, stream_id: Option<StreamNumber>) -> Packet {
         Packet {
             addr,
             payload: payload.into_boxed_slice(),

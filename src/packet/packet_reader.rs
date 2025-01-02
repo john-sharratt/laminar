@@ -114,7 +114,7 @@ impl<'s> PacketReader<'s> {
 #[cfg(test)]
 mod tests {
     use crate::packet::header::{AckedPacketHeader, HeaderReader, StandardHeader};
-    use crate::packet::{DeliveryGuarantee, OrderingGuarantee, PacketReader, PacketType};
+    use crate::packet::{DeliveryGuarantee, OrderingGuarantee, PacketReader, PacketType, SequenceNumber, StreamNumber};
 
     #[test]
     fn can_read_bytes() {
@@ -199,7 +199,11 @@ mod tests {
     #[test]
     fn assure_read_unreliable_sequenced_header() {
         // standard header, arranging header
-        let reliable_ordered_payload: Vec<u8> = vec![vec![0, 1, 0, 1, 2], vec![0, 1, 2]].concat();
+        let reliable_ordered_payload: Vec<u8> = vec![
+            vec![0, 1, 0, 1, 2],
+            (1 as SequenceNumber).to_be_bytes().to_vec(),
+            (2 as StreamNumber).to_be_bytes().to_vec()
+        ].concat();
 
         let mut reader = PacketReader::new(reliable_ordered_payload.as_slice());
 
@@ -217,7 +221,8 @@ mod tests {
         let reliable_ordered_payload: Vec<u8> = vec![
             vec![0, 1, 0, 1, 2],
             vec![0, 1, 0, 2, 0, 0, 0, 3],
-            vec![0, 1, 2],
+            (1 as SequenceNumber).to_be_bytes().to_vec(),
+            (2 as StreamNumber).to_be_bytes().to_vec(),
         ]
         .concat();
         let mut reader = PacketReader::new(reliable_ordered_payload.as_slice());
