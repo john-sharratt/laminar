@@ -16,10 +16,6 @@ pub struct Config {
     /// Value which specifies at which interval (if at all) a heartbeat should be sent, if no other packet was sent in the meantime.
     /// If None, no heartbeats will be sent (the default).
     pub heartbeat_interval: Option<Duration>,
-    /// Value which can specify the maximum size a packet can be in bytes. This value is inclusive of fragmenting; if a packet is fragmented, the total size of the fragments cannot exceed this value.
-    ///
-    /// Recommended value: 16384.
-    pub max_packet_size: usize,
     /// Value which can specify the maximal allowed fragments.
     ///
     /// Why can't I have more than 255 (u8)?
@@ -73,7 +69,6 @@ impl Default for Config {
             reuse_address: true,
             idle_connection_timeout: Duration::from_secs(5),
             heartbeat_interval: None,
-            max_packet_size: (MAX_FRAGMENTS_DEFAULT * FRAGMENT_SIZE_DEFAULT) as usize,
             max_fragments: MAX_FRAGMENTS_DEFAULT as u16,
             fragment_size: FRAGMENT_SIZE_DEFAULT,
             fragment_reassembly_buffer_size: 64,

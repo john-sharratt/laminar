@@ -187,7 +187,9 @@ fn send_packets(
     match packets {
         Ok(packets) => {
             for outgoing in packets {
-                ctx.send_packet(address, &outgoing.contents()).unwrap();
+                if let Err(err) = ctx.send_packet(address, &outgoing.contents()) {
+                    error!("Error occured sending {} (len={}): {:?}", err_context, outgoing.contents().len(), err);
+                }
             }
         }
         Err(error) => error!("Error occured processing {}: {:?}", err_context, error),
