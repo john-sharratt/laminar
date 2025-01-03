@@ -1,6 +1,6 @@
 use coarsetime::Instant;
 
-use log::error;
+use log::{debug, error, warn};
 use socket2::SockAddr;
 
 use crate::error::{ErrorKind, Result};
@@ -108,10 +108,10 @@ impl Connection for VirtualConnection {
                         messenger.send_event(&self.remote_address, SocketEvent::Packet(incoming.0));
                     }
                 }
-                Err(err) => error!("Error occured processing incomming packet: {:?}", err),
+                Err(err) => debug!("Error occured processing incomming packet: {:?}", err),
             }
         } else {
-            error!(
+            warn!(
                 "Error processing packet: {}",
                 ErrorKind::ReceivedDataToShort
             );
