@@ -1,11 +1,12 @@
 [package]
 name = "laminar"
-version = "0.6.0"
+version = "0.6.1"
 authors = [
     "Lucio Franco <luciofranco14@gmail.com>",
     "Fletcher Haynes <fletcher@capitalprawn.com>",
     "TimonPost <timonpost@hotmail.nl>",
-    "Justin LeFebvre <jstnlefebvre@gmail.com>"
+    "Justin LeFebvre <jstnlefebvre@gmail.com>",
+    "Johnathan Sharratt <johnathan.sharratt@gmail.com>"
 ]
 description = "A simple semi-reliable UDP protocol for multiplayer games"
 keywords = ["gamedev", "networking", "udp", "amethyst"]
