@@ -81,19 +81,22 @@ impl<T: Clone + Default> SequenceBuffer<T> {
     // Advances the sequence number while removing older entries.
     fn advance_sequence(&mut self, sequence_num: SequenceNumber) {
         if sequence_greater_than(sequence_num.wrapping_add(1), self.sequence_num) {
-            self.remove_entries(u32::from(sequence_num));
+            self.remove_entries(sequence_num);
             self.sequence_num = sequence_num.wrapping_add(1);
         }
     }
 
-    fn remove_entries(&mut self, mut finish_sequence: u32) {
-        let start_sequence = u32::from(self.sequence_num);
-        if finish_sequence < start_sequence {
-            finish_sequence += 65536;
+    fn remove_entries(&mut self, finish_sequence: SequenceNumber) {
+        let start_sequence = self.sequence_num;
+
+        let sequence_diff = finish_sequence.wrapping_sub(start_sequence);
+        if sequence_diff > SEQUENCE_MID {
+            return;
         }
 
-        if finish_sequence - start_sequence < self.entry_sequences.len() as u32 {
-            for sequence in start_sequence..=finish_sequence {
+        if sequence_diff < self.entry_sequences.len() as SequenceNumber {
+            for i in 0..sequence_diff {
+                let sequence = start_sequence.wrapping_add(i);
                 self.remove(sequence as SequenceNumber);
             }
         } else {
