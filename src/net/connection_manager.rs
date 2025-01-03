@@ -25,7 +25,7 @@ pub trait DatagramSocketSender: Debug {
     fn clone_box(&self) -> Box<dyn DatagramSocketSender + Send + Sync>;
 
     /// Sends a single packet to the socket.
-    fn send_packet(&mut self, addr: &SockAddr, payload: &[u8]) -> Result<usize>;
+    fn send_packet(&self, addr: &SockAddr, payload: &[u8]) -> Result<usize>;
 
     /// Sends a single packet made up of multiple buffers to the socket.
     fn send_packet_vectored(&mut self, addr: &SockAddr, bufs: &[IoSlice<'_>]) -> std::io::Result<usize>;
@@ -79,11 +79,11 @@ impl<ReceiveEvent: Debug> ConnectionMessenger<ReceiveEvent>
         &self.config
     }
 
-    fn send_event(&mut self, _address: &SockAddr, event: ReceiveEvent) {
+    fn send_event(&self, _address: &SockAddr, event: ReceiveEvent) {
         self.event_sender.send(event).expect("Receiver must exists");
     }
 
-    fn send_packet(&mut self, address: &SockAddr, payload: &[u8]) -> std::io::Result<()> {
+    fn send_packet(&self, address: &SockAddr, payload: &[u8]) -> std::io::Result<()> {
         self.socket.send_packet(address, payload)?;
         Ok(())
     }
@@ -283,8 +283,8 @@ for ConnectionSender<TConnection> {
 
 impl<TConnection: Connection> ConnectionSender<TConnection> {
     /// Sends a single packet to the socket.
-    pub fn send(&mut self, event: TConnection::SendEvent) -> Result<()> {
-        let messenger = &mut self.tx;
+    pub fn send(&self, event: TConnection::SendEvent) -> Result<()> {
+        let messenger = &self.tx;
         let time = Instant::now();
         
         {
@@ -302,8 +302,8 @@ impl<TConnection: Connection> ConnectionSender<TConnection> {
 
     /// Processes connection specific logic for active connections.
     /// Removes dropped connections from active connections list.
-    pub fn manual_poll_update(&mut self, time: Instant) {
-        let messenger = &mut self.tx;
+    pub fn manual_poll_update(&self, time: Instant) {
+        let messenger = &self.tx;
 
         // update all connections
         for conn in self.connections.lock().unwrap().values_mut() {
@@ -392,7 +392,7 @@ mod tests {
     fn using_sender_and_receiver() {
         let (mut server, mut client, _) = create_server_client_network();
 
-        let mut sender = client.get_packet_sender();
+        let sender = client.get_packet_sender();
         let receiver = server.get_event_receiver();
 
         sender
@@ -1058,7 +1058,7 @@ mod tests {
         use crate::net::DatagramSocketSender;
         let network = NetworkEmulator::default();
         let mut server = FakeSocket::bind(&network, server_address(), Config::default()).unwrap();
-        let mut client_socket = network.new_socket(client_address()).unwrap();
+        let client_socket = network.new_socket(client_address()).unwrap();
 
         client_socket
             .send_packet(&server_address(), &bytes)

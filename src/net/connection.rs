@@ -10,10 +10,10 @@ pub trait ConnectionMessenger<ReceiveEvent: Debug> {
     fn config(&self) -> &Config;
 
     /// Sends a connection event.
-    fn send_event(&mut self, address: &SockAddr, event: ReceiveEvent);
+    fn send_event(&self, address: &SockAddr, event: ReceiveEvent);
     
     /// Sends a packet.
-    fn send_packet(&mut self, address: &SockAddr, payload: &[u8]) -> std::io::Result<()>;
+    fn send_packet(&self, address: &SockAddr, payload: &[u8]) -> std::io::Result<()>;
     
     /// Sends a packet with multiple buffers.
     fn send_packet_vectored(&mut self, address: &SockAddr, bufs: &[IoSlice<'_>]) -> std::io::Result<()>;
@@ -39,7 +39,7 @@ pub trait Connection: Debug {
     /// * address - defines a address that connection is associated with.
     /// * time - creation time, used by connection, so that it doesn't get dropped immediately or send heartbeat packet.
     fn create_connection(
-        messenger: &mut impl ConnectionMessenger<Self::ReceiveEvent>,
+        messenger: &impl ConnectionMessenger<Self::ReceiveEvent>,
         address: SockAddr,
         time: Instant,
     ) -> Self;
@@ -50,7 +50,7 @@ pub trait Connection: Debug {
     /// Determines if the connection should be dropped due to its state.
     fn should_drop(
         &mut self,
-        messenger: &mut impl ConnectionMessenger<Self::ReceiveEvent>,
+        messenger: &impl ConnectionMessenger<Self::ReceiveEvent>,
         time: Instant,
     ) -> bool;
 
@@ -65,7 +65,7 @@ pub trait Connection: Debug {
     /// Processes a received event and send a packet.
     fn process_event(
         &mut self,
-        messenger: &mut impl ConnectionMessenger<Self::ReceiveEvent>,
+        messenger: &impl ConnectionMessenger<Self::ReceiveEvent>,
         event: Self::SendEvent,
         time: Instant,
     );
@@ -74,7 +74,7 @@ pub trait Connection: Debug {
     /// This function gets called frequently.
     fn update(
         &mut self,
-        messenger: &mut impl ConnectionMessenger<Self::ReceiveEvent>,
+        messenger: &impl ConnectionMessenger<Self::ReceiveEvent>,
         time: Instant,
     );
 }

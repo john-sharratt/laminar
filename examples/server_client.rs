@@ -12,7 +12,7 @@ const SERVER: &str = "127.0.0.1:12351";
 
 fn server() -> Result<(), ErrorKind> {
     let mut socket = Socket::bind(SERVER)?;
-    let (mut sender, receiver) = (socket.get_packet_sender(), socket.get_event_receiver());
+    let (sender, receiver) = (socket.get_packet_sender(), socket.get_event_receiver());
     let _thread = thread::spawn(move || socket.start_polling());
 
     loop {

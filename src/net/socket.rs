@@ -87,7 +87,7 @@ impl DatagramSocketSender for SocketWithConditioner {
         })
     }
 
-    fn send_packet(&mut self, addr: &SockAddr, payload: &[u8]) -> std::io::Result<usize> {
+    fn send_packet(&self, addr: &SockAddr, payload: &[u8]) -> std::io::Result<usize> {
         self.tx.send_packet(addr, payload)
     }
 
@@ -124,9 +124,9 @@ impl DatagramSocketSender for SocketWithConditionerTx {
     }
 
     // Determinate whether packet will be sent or not based on `LinkConditioner` if enabled.
-    fn send_packet(&mut self, addr: &SockAddr, payload: &[u8]) -> std::io::Result<usize> {
+    fn send_packet(&self, addr: &SockAddr, payload: &[u8]) -> std::io::Result<usize> {
         if cfg!(feature = "tester") {
-            if let Some(ref mut link) = &mut self.link_conditioner {
+            if let Some(ref link) = &self.link_conditioner {
                 if !link.should_send() {
                     return Ok(0);
                 }
@@ -178,7 +178,7 @@ impl DatagramSocketSender for Box<dyn DatagramSocketSender> {
         (**self).clone_box()
     }
 
-    fn send_packet(&mut self, addr: &SockAddr, payload: &[u8]) -> std::io::Result<usize> {
+    fn send_packet(&self, addr: &SockAddr, payload: &[u8]) -> std::io::Result<usize> {
         (**self).send_packet(addr, payload)
     }
 

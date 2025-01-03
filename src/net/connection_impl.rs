@@ -43,7 +43,7 @@ impl Connection for VirtualConnection {
     /// * time - creation time, used by connection, so that it doesn't get dropped immediately or send heartbeat packet.
     /// * initial_data - if initiated by remote host, this will hold that a packet data.
     fn create_connection(
-        messenger: &mut impl ConnectionMessenger<Self::ReceiveEvent>,
+        messenger: &impl ConnectionMessenger<Self::ReceiveEvent>,
         address: SockAddr,
         time: Instant,
     ) -> VirtualConnection {
@@ -58,7 +58,7 @@ impl Connection for VirtualConnection {
     /// Determines if the given `Connection` should be dropped due to its state.
     fn should_drop(
         &mut self,
-        messenger: &mut impl ConnectionMessenger<Self::ReceiveEvent>,
+        messenger: &impl ConnectionMessenger<Self::ReceiveEvent>,
         time: Instant,
     ) -> bool {
         let too_many = self.packets_in_flight() > messenger.config().max_packets_in_flight;
@@ -121,7 +121,7 @@ impl Connection for VirtualConnection {
     /// Processes a received event and send a packet.
     fn process_event(
         &mut self,
-        messenger: &mut impl ConnectionMessenger<Self::ReceiveEvent>,
+        messenger: &impl ConnectionMessenger<Self::ReceiveEvent>,
         event: Self::SendEvent,
         time: Instant,
     ) {
@@ -150,7 +150,7 @@ impl Connection for VirtualConnection {
     /// This function gets called very frequently.
     fn update(
         &mut self,
-        messenger: &mut impl ConnectionMessenger<Self::ReceiveEvent>,
+        messenger: &impl ConnectionMessenger<Self::ReceiveEvent>,
         time: Instant,
     ) {
         // resend dropped packets
@@ -189,7 +189,7 @@ impl Connection for VirtualConnection {
 
 // Sends multiple outgoing packets.
 fn send_packets(
-    ctx: &mut impl ConnectionMessenger<SocketEvent>,
+    ctx: &impl ConnectionMessenger<SocketEvent>,
     address: &SockAddr,
     packets: Result<OutgoingPackets<'_>>,
     err_context: &str,

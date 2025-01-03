@@ -6,7 +6,6 @@
 use std::time::Duration;
 
 use rand::Rng;
-use rand_pcg::Pcg64Mcg as Random;
 
 /// Network simulator. Used to simulate network conditions as dropped packets and packet delays.
 /// For use in [FakeSocket::set_link_conditioner](crate::test_utils::FakeSocket::set_link_conditioner).
@@ -16,8 +15,6 @@ pub struct LinkConditioner {
     packet_loss: f64,
     // Duration of the delay imposed between packets
     latency: Duration,
-    // Random number generator
-    random: Random,
 }
 
 impl LinkConditioner {
@@ -27,7 +24,6 @@ impl LinkConditioner {
         LinkConditioner {
             packet_loss: 0.0,
             latency: Duration::default(),
-            random: Random::new(0),
         }
     }
 
@@ -44,8 +40,8 @@ impl LinkConditioner {
     }
 
     /// Function that checks to see if a packet should be dropped or not
-    pub fn should_send(&mut self) -> bool {
-        self.random.gen_range(0.0..1.0) >= self.packet_loss
+    pub fn should_send(&self) -> bool {
+        rand::thread_rng().gen_range(0.0..1.0) >= self.packet_loss
     }
 }
 

@@ -70,8 +70,8 @@ impl DatagramSocketSender for EmulatedSocket {
     }
 
     /// Sends a packet to and address if there is a socket bound to it. Otherwise it will simply be ignored.
-    fn send_packet(&mut self, addr: &SockAddr, payload: &[u8]) -> Result<usize> {
-        let send = if let Some(ref mut conditioner) = self.conditioner {
+    fn send_packet(&self, addr: &SockAddr, payload: &[u8]) -> Result<usize> {
+        let send = if let Some(ref conditioner) = self.conditioner {
             conditioner.should_send()
         } else {
             true
