@@ -14,8 +14,11 @@ mod packet_reader;
 mod packet_structure;
 mod process_result;
 
+/// The stream of ordered/sequential packets for a specific connection
 pub type StreamNumber = u16;
+/// The fragment number of a fragmented packet
 pub type FragmentNumber = u8;
+/// The sequence number of a packet
 pub type SequenceNumber = u32;
 pub type AckFieldNumber = u32;
 

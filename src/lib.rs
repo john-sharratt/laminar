@@ -43,7 +43,7 @@ pub use self::throughput::ThroughputMonitoring;
 pub use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 pub use coarsetime::{Duration, Instant};
 pub use socket2;
-
+pub use packet::{SequenceNumber, StreamNumber, FragmentNumber};
 
 mod config;
 mod either;
