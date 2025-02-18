@@ -52,6 +52,7 @@ pub struct EmulatedSocket {
 }
 
 impl EmulatedSocket {
+    /// Sets the link conditioner for this socket.
     pub fn set_link_conditioner(&mut self, conditioner: Option<LinkConditioner>) {
         self.conditioner = conditioner;
     }

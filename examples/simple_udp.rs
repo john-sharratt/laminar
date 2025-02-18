@@ -38,7 +38,7 @@ pub fn main() {
             longitude: 10.555,
             altitude: 1.3,
         })
-        .unwrap(),
+        .unwrap(), "user packet"
     ));
 
     client.send(Packet::unreliable(
@@ -48,7 +48,7 @@ pub fn main() {
             longitude: 5.4545,
             altitude: 1.33,
         })
-        .unwrap(),
+        .unwrap(), "user packet"
     ));
 
     client.send(Packet::unreliable(
@@ -56,7 +56,7 @@ pub fn main() {
         serialize(&DataType::Text {
             string: String::from("Some information"),
         })
-        .unwrap(),
+        .unwrap(), "user packet"
     ));
 
     // Send the queued send operations

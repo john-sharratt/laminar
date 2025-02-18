@@ -142,7 +142,7 @@ impl Connection for VirtualConnection {
                 None,
                 time,
             ),
-            "user packet",
+            event.context(),
         );
     }
 

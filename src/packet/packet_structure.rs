@@ -26,6 +26,8 @@ pub struct Packet {
     delivery: DeliveryGuarantee,
     /// Defines on how the packet will be ordered.
     ordering: OrderingGuarantee,
+    /// Context of the packet
+    context: &'static str,
 }
 
 impl Packet {
@@ -35,12 +37,14 @@ impl Packet {
         payload: Box<[u8]>,
         delivery: DeliveryGuarantee,
         ordering: OrderingGuarantee,
+        context: &'static str,
     ) -> Packet {
         Packet {
             addr,
             payload,
             delivery,
             ordering,
+            context,
         }
     }
 
@@ -55,12 +59,13 @@ impl Packet {
     /// |       Any       |        Yes         |      No          |      No              |       No        |
     ///
     /// Basically just bare UDP. The packet may or may not be delivered.
-    pub fn unreliable(addr: SockAddr, payload: Vec<u8>) -> Packet {
+    pub fn unreliable(addr: SockAddr, payload: Vec<u8>, context: &'static str,) -> Packet {
         Packet {
             addr,
             payload: payload.into_boxed_slice(),
             delivery: DeliveryGuarantee::Unreliable,
             ordering: OrderingGuarantee::None,
+            context,
         }
     }
 
@@ -79,12 +84,14 @@ impl Packet {
         addr: SockAddr,
         payload: Vec<u8>,
         stream_id: Option<StreamNumber>,
+        context: &'static str,
     ) -> Packet {
         Packet {
             addr,
             payload: payload.into_boxed_slice(),
             delivery: DeliveryGuarantee::Unreliable,
             ordering: OrderingGuarantee::Sequenced(stream_id),
+            context,
         }
     }
 
@@ -98,12 +105,13 @@ impl Packet {
     /// |       No        |      No            |      No          |      Yes             |       Yes       |
     ///
     /// Basically this is almost TCP without ordering of packets.
-    pub fn reliable_unordered(addr: SockAddr, payload: Vec<u8>) -> Packet {
+    pub fn reliable_unordered(addr: SockAddr, payload: Vec<u8>, context: &'static str,) -> Packet {
         Packet {
             addr,
             payload: payload.into_boxed_slice(),
             delivery: DeliveryGuarantee::Reliable,
             ordering: OrderingGuarantee::None,
+            context
         }
     }
 
@@ -121,12 +129,13 @@ impl Packet {
     ///
     /// # Remark
     /// - When `stream_id` is specified as `None` the default stream will be used; if you are not sure what this is you can leave it at `None`.
-    pub fn reliable_ordered(addr: SockAddr, payload: Vec<u8>, stream_id: Option<StreamNumber>) -> Packet {
+    pub fn reliable_ordered(addr: SockAddr, payload: Vec<u8>, stream_id: Option<StreamNumber>, context: &'static str,) -> Packet {
         Packet {
             addr,
             payload: payload.into_boxed_slice(),
             delivery: DeliveryGuarantee::Reliable,
             ordering: OrderingGuarantee::Ordered(stream_id),
+            context,
         }
     }
 
@@ -145,12 +154,13 @@ impl Packet {
     ///
     /// # Remark
     /// - When `stream_id` is specified as `None` the default stream will be used; if you are not sure what this is you can leave it at `None`.
-    pub fn reliable_sequenced(addr: SockAddr, payload: Vec<u8>, stream_id: Option<StreamNumber>) -> Packet {
+    pub fn reliable_sequenced(addr: SockAddr, payload: Vec<u8>, stream_id: Option<StreamNumber>, context: &'static str,) -> Packet {
         Packet {
             addr,
             payload: payload.into_boxed_slice(),
             delivery: DeliveryGuarantee::Reliable,
             ordering: OrderingGuarantee::Sequenced(stream_id),
+            context
         }
     }
 
@@ -162,6 +172,12 @@ impl Packet {
     /// Returns the payload of this packet.
     pub fn into_payload(self) -> Box<[u8]> {
         self.payload
+    }
+
+    /// Context the the packet is being sent under
+    /// which will be reflected in the logs
+    pub fn context(&self) -> &'static str {
+        self.context
     }
 
     /// Returns the address of this packet.
@@ -233,7 +249,7 @@ mod tests {
 
     #[test]
     fn assure_creation_unreliable_packet() {
-        let packet = Packet::unreliable(test_addr(), test_payload());
+        let packet = Packet::unreliable(test_addr(), test_payload(), "user packet");
 
         assert_eq!(packet.addr().clone(), test_addr());
         assert_eq!(packet.payload(), test_payload().as_slice());
@@ -243,7 +259,7 @@ mod tests {
 
     #[test]
     fn assure_creation_unreliable_sequenced() {
-        let packet = Packet::unreliable_sequenced(test_addr(), test_payload(), Some(1));
+        let packet = Packet::unreliable_sequenced(test_addr(), test_payload(), Some(1), "user packet");
 
         assert_eq!(packet.addr().clone(), test_addr());
         assert_eq!(packet.payload(), test_payload().as_slice());
@@ -256,7 +272,7 @@ mod tests {
 
     #[test]
     fn assure_creation_reliable() {
-        let packet = Packet::reliable_unordered(test_addr(), test_payload());
+        let packet = Packet::reliable_unordered(test_addr(), test_payload(), "user packet");
 
         assert_eq!(packet.addr().clone(), test_addr());
         assert_eq!(packet.payload(), test_payload().as_slice());
@@ -266,7 +282,7 @@ mod tests {
 
     #[test]
     fn assure_creation_reliable_ordered() {
-        let packet = Packet::reliable_ordered(test_addr(), test_payload(), Some(1));
+        let packet = Packet::reliable_ordered(test_addr(), test_payload(), Some(1), "user packet");
 
         assert_eq!(packet.addr().clone(), test_addr());
         assert_eq!(packet.payload(), test_payload().as_slice());
@@ -279,7 +295,7 @@ mod tests {
 
     #[test]
     fn assure_creation_reliable_sequence() {
-        let packet = Packet::reliable_sequenced(test_addr(), test_payload(), Some(1));
+        let packet = Packet::reliable_sequenced(test_addr(), test_payload(), Some(1), "user packet");
 
         assert_eq!(packet.addr().clone(), test_addr());
         assert_eq!(packet.payload(), test_payload().as_slice());

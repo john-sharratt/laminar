@@ -290,6 +290,7 @@ impl VirtualConnection {
                                 packet,
                                 header.delivery_guarantee(),
                                 OrderingGuarantee::Sequenced(Some(arranging_header.stream_id())),
+                                "received packet",
                             ),
                             header.packet_type(),
                         ));
@@ -304,6 +305,7 @@ impl VirtualConnection {
                         packet_reader.read_payload(),
                         header.delivery_guarantee(),
                         header.ordering_guarantee(),
+                        "received packet",
                     ),
                     header.packet_type(),
                 ));
@@ -335,6 +337,7 @@ impl VirtualConnection {
                                         payload.into_boxed_slice(),
                                         header.delivery_guarantee(),
                                         header.ordering_guarantee(),
+                                        "received packet",
                                     ),
                                     PacketType::Packet, // change from Fragment to Packet type, it only matters when assembling/dissasembling packet header.
                                 ));
@@ -376,6 +379,7 @@ impl VirtualConnection {
                                     OrderingGuarantee::Sequenced(Some(
                                         arranging_header.stream_id(),
                                     )),
+                                    "received packet",
                                 ),
                                 header.packet_type(),
                             ));
@@ -407,6 +411,7 @@ impl VirtualConnection {
                                             OrderingGuarantee::Ordered(Some(
                                                 arranging_header.stream_id(),
                                             )),
+                                            "received packet",
                                         ),
                                         packet_type,
                                     )
@@ -421,6 +426,7 @@ impl VirtualConnection {
                                 payload,
                                 header.delivery_guarantee(),
                                 header.ordering_guarantee(),
+                                "received packet",
                             ),
                             header.packet_type(),
                         ));
@@ -697,6 +703,7 @@ mod tests {
                 get_fake_addr(),
                 PAYLOAD.to_vec(),
                 Some(1),
+                "received packet"
             )),
             1,
         );
@@ -709,6 +716,7 @@ mod tests {
                 get_fake_addr(),
                 PAYLOAD.to_vec(),
                 Some(1),
+                "received packet"
             )),
             3,
         );
@@ -729,6 +737,7 @@ mod tests {
                 get_fake_addr(),
                 PAYLOAD.to_vec(),
                 Some(1),
+                "received packet"
             )),
             4,
         );
@@ -741,6 +750,7 @@ mod tests {
                 get_fake_addr(),
                 PAYLOAD.to_vec(),
                 Some(1),
+                "received packet"
             )),
             5,
         );
@@ -758,6 +768,7 @@ mod tests {
                 get_fake_addr(),
                 PAYLOAD.to_vec(),
                 Some(1),
+                "received packet"
             )),
             0,
         );
@@ -786,6 +797,7 @@ mod tests {
                 get_fake_addr(),
                 PAYLOAD.to_vec(),
                 Some(1),
+                "received packet"
             )),
             1,
         );
@@ -798,13 +810,13 @@ mod tests {
         assert_incoming_without_order(
             DeliveryGuarantee::Unreliable,
             &mut connection,
-            Packet::unreliable(get_fake_addr(), PAYLOAD.to_vec()),
+            Packet::unreliable(get_fake_addr(), PAYLOAD.to_vec(), "received packet"),
         );
 
         assert_incoming_without_order(
             DeliveryGuarantee::Reliable,
             &mut connection,
-            Packet::reliable_unordered(get_fake_addr(), PAYLOAD.to_vec()),
+            Packet::reliable_unordered(get_fake_addr(), PAYLOAD.to_vec(), "received packet"),
         );
 
         assert_incoming_with_order(
@@ -815,6 +827,7 @@ mod tests {
                 get_fake_addr(),
                 PAYLOAD.to_vec(),
                 Some(1),
+                "received packet"
             )),
             1,
         );
@@ -827,6 +840,7 @@ mod tests {
                 get_fake_addr(),
                 PAYLOAD.to_vec(),
                 Some(1),
+                "received packet"
             )),
             0,
         );

@@ -56,5 +56,6 @@ mod sequence_buffer;
 #[cfg(feature = "tester")]
 mod throughput;
 
+/// Test utilities.
 #[cfg(test)]
 pub mod test_utils;

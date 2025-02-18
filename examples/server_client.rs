@@ -33,6 +33,7 @@ fn server() -> Result<(), ErrorKind> {
                         .send(Packet::reliable_unordered(
                             packet.addr().clone(),
                             "Copy that!".as_bytes().to_vec(),
+                            "user packet"
                         ))
                         .expect("This should send");
                 }
@@ -71,6 +72,7 @@ fn client() -> Result<(), ErrorKind> {
         socket.send(Packet::reliable_unordered(
             server.clone(),
             line.clone().into_bytes(),
+            "user packet"
         ))?;
 
         socket.manual_poll(Instant::now()).unwrap();

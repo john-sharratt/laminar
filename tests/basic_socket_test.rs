@@ -40,7 +40,7 @@ fn blocking_sender_and_receiver() {
     let time = Instant::now();
 
     client
-        .send(Packet::unreliable(server_addr, b"Hello world!".to_vec()))
+        .send(Packet::unreliable(server_addr, b"Hello world!".to_vec(), "user packet"))
         .unwrap();
 
     client.manual_poll(time).unwrap();

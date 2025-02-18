@@ -68,7 +68,7 @@ pub fn construct_packet() -> Packet {
     let raw_data = "example data".as_bytes();
 
     // lets construct or packet by passing in the destination for this packet and the bytes needed to be send..
-    let packet: Packet = Packet::reliable_unordered(destination.into(), raw_data.to_owned());
+    let packet: Packet = Packet::reliable_unordered(destination.into(), raw_data.to_owned(), "user packet");
 
     packet
 }

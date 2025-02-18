@@ -399,6 +399,7 @@ mod tests {
             .send(Packet::reliable_unordered(
                 server_address(),
                 b"Hello world!".to_vec(),
+                "user packet"
             ))
             .unwrap();
 
@@ -423,6 +424,7 @@ mod tests {
             .send(Packet::reliable_unordered(
                 server_address(),
                 b"Do not arrive".to_vec(),
+                "user packet"
             ))
             .unwrap();
         client.manual_poll(time);
@@ -433,11 +435,11 @@ mod tests {
         // send a packet that the server receives
         for id in 0..u8::max_value() {
             client
-                .send(Packet::reliable_unordered(server_address(), vec![id]))
+                .send(Packet::reliable_unordered(server_address(), vec![id], "user packet"))
                 .unwrap();
 
             server
-                .send(Packet::reliable_unordered(client_address(), vec![id]))
+                .send(Packet::reliable_unordered(client_address(), vec![id], "user packet"))
                 .unwrap();
 
             client.manual_poll(time);
@@ -476,6 +478,7 @@ mod tests {
                 .send(Packet::unreliable(
                     server_address(),
                     vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
+                    "user packet"
                 ))
                 .unwrap();
 
@@ -494,7 +497,7 @@ mod tests {
         assert_eq![2, server.connection_count()];
 
         server
-            .send(Packet::unreliable(client_address(), vec![1]))
+            .send(Packet::unreliable(client_address(), vec![1], "user packet"))
             .unwrap();
 
         server.manual_poll(time);
@@ -514,6 +517,7 @@ mod tests {
                 server_address(),
                 b"Do not arrive".to_vec(),
                 None,
+                "user packet"
             ))
             .unwrap();
         client.manual_poll(time);
@@ -524,11 +528,11 @@ mod tests {
         // send a packet that the server receives
         for id in 0..36 {
             client
-                .send(Packet::reliable_sequenced(server_address(), vec![id], None))
+                .send(Packet::reliable_sequenced(server_address(), vec![id], None, "user packet"))
                 .unwrap();
 
             server
-                .send(Packet::reliable_sequenced(client_address(), vec![id], None))
+                .send(Packet::reliable_sequenced(client_address(), vec![id], None, "user packet"))
                 .unwrap();
 
             client.manual_poll(time);
@@ -554,6 +558,7 @@ mod tests {
                 server_address(),
                 b"Do not arrive".to_vec(),
                 None,
+                "user packet"
             ))
             .unwrap();
         client.manual_poll(time);
@@ -564,11 +569,11 @@ mod tests {
         // send a packet that the server receives
         for id in 0..35 {
             client
-                .send(Packet::reliable_ordered(server_address(), vec![id], None))
+                .send(Packet::reliable_ordered(server_address(), vec![id], None, "user packet"))
                 .unwrap();
 
             server
-                .send(Packet::reliable_ordered(client_address(), vec![id], None))
+                .send(Packet::reliable_ordered(client_address(), vec![id], None, "user packet"))
                 .unwrap();
 
             client.manual_poll(time);
@@ -592,7 +597,7 @@ mod tests {
 
         for id in 0..100 {
             client
-                .send(Packet::reliable_sequenced(server_address(), vec![id], None))
+                .send(Packet::reliable_sequenced(server_address(), vec![id], None, "user packet"))
                 .unwrap();
             client.manual_poll(time);
             server.manual_poll(time);
@@ -622,7 +627,7 @@ mod tests {
         let (mut server, mut client, _) = create_server_client_network();
         // acknowledge the client
         server
-            .send(Packet::unreliable(client_address(), vec![0]))
+            .send(Packet::unreliable(client_address(), vec![0], "user packet"))
             .unwrap();
 
         let time = Instant::now();
@@ -633,6 +638,7 @@ mod tests {
                     server_address(),
                     id.to_string().as_bytes().to_vec(),
                     None,
+                    "user packet"
                 ))
                 .unwrap();
             client.manual_poll(time);
@@ -670,6 +676,7 @@ mod tests {
                     server_address(),
                     id.to_string().as_bytes().to_vec(),
                     None,
+                    "user packet"
                 ))
                 .unwrap();
             client.manual_poll(time);
@@ -699,6 +706,7 @@ mod tests {
                 .send(Packet::unreliable(
                     server_address(),
                     vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
+                    "user packet"
                 ))
                 .unwrap();
         }
@@ -721,6 +729,7 @@ mod tests {
                 .send(Packet::unreliable(
                     server_address(),
                     vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
+                    "user packet"
                 ))
                 .unwrap();
         }
@@ -739,11 +748,11 @@ mod tests {
         let (mut server, mut client, _) = create_server_client_network();
 
         client
-            .send(Packet::unreliable(server_address(), vec![0, 1, 2]))
+            .send(Packet::unreliable(server_address(), vec![0, 1, 2], "user packet"))
             .unwrap();
 
         server
-            .send(Packet::unreliable(client_address(), vec![2, 1, 0]))
+            .send(Packet::unreliable(client_address(), vec![2, 1, 0], "user packet"))
             .unwrap();
 
         let now = Instant::now();
@@ -766,7 +775,7 @@ mod tests {
         let (mut server, mut client) = create_server_client(config.clone());
 
         client
-            .send(Packet::unreliable(server_address(), vec![0, 1, 2]))
+            .send(Packet::unreliable(server_address(), vec![0, 1, 2], "user packet"))
             .unwrap();
 
         let now = Instant::now();
@@ -775,12 +784,12 @@ mod tests {
 
         assert_eq!(
             server.recv().unwrap(),
-            SocketEvent::Packet(Packet::unreliable(client_address(), vec![0, 1, 2]))
+            SocketEvent::Packet(Packet::unreliable(client_address(), vec![0, 1, 2], "received packet"))
         );
 
         // acknowledge the client
         server
-            .send(Packet::unreliable(client_address(), vec![]))
+            .send(Packet::unreliable(client_address(), vec![], "user packet"))
             .unwrap();
 
         server.manual_poll(now);
@@ -798,7 +807,7 @@ mod tests {
         );
         assert_eq!(
             client.recv().unwrap(),
-            SocketEvent::Packet(Packet::unreliable(server_address(), vec![]))
+            SocketEvent::Packet(Packet::unreliable(server_address(), vec![], "received packet"))
         );
 
         // give just enough time for no timeout events to occur (yet)
@@ -840,7 +849,7 @@ mod tests {
         let (mut server, mut client) = create_server_client(config.clone());
         // initiate a connection
         client
-            .send(Packet::unreliable(server_address(), vec![0, 1, 2]))
+            .send(Packet::unreliable(server_address(), vec![0, 1, 2], "user packet"))
             .unwrap();
 
         let now = Instant::now();
@@ -849,13 +858,13 @@ mod tests {
 
         assert_eq!(
             server.recv().unwrap(),
-            SocketEvent::Packet(Packet::unreliable(client_address(), vec![0, 1, 2]))
+            SocketEvent::Packet(Packet::unreliable(client_address(), vec![0, 1, 2], "received packet"))
         );
 
         // acknowledge the client
         // this way, the server also knows about the connection and sends heartbeats
         server
-            .send(Packet::unreliable(client_address(), vec![]))
+            .send(Packet::unreliable(client_address(), vec![], "user packet"))
             .unwrap();
 
         server.manual_poll(now);
@@ -876,7 +885,7 @@ mod tests {
         // make sure the connection was successful on the client side
         assert_eq!(
             client.recv().unwrap(),
-            SocketEvent::Packet(Packet::unreliable(server_address(), vec![]))
+            SocketEvent::Packet(Packet::unreliable(server_address(), vec![], "received packet"))
         );
 
         // give time to send heartbeats
@@ -901,7 +910,7 @@ mod tests {
         // send enough packets to ensure that we must have dropped packets.
         for i in 0..35 {
             client
-                .send(Packet::unreliable(server_address(), vec![i]))
+                .send(Packet::unreliable(server_address(), vec![i], "user packet"))
                 .unwrap();
             client.manual_poll(now);
         }
@@ -924,7 +933,7 @@ mod tests {
         // finally the server decides to send us a message back. This necessarily will include
         // the ack information for 33 of the sent 35 packets.
         server
-            .send(Packet::unreliable(client_address(), vec![0]))
+            .send(Packet::unreliable(client_address(), vec![0], "user packet"))
             .unwrap();
         server.manual_poll(now);
 
@@ -946,7 +955,7 @@ mod tests {
         // with payload 35
         events.clear();
         client
-            .send(Packet::unreliable(server_address(), vec![35]))
+            .send(Packet::unreliable(server_address(), vec![35], "user packet"))
             .unwrap();
         client.manual_poll(now);
 
@@ -982,11 +991,11 @@ mod tests {
         // ---
 
         client
-            .send(Packet::unreliable(server_address(), dummy.clone()))
+            .send(Packet::unreliable(server_address(), dummy.clone(), "user packet"))
             .unwrap();
         client.manual_poll(time);
         server
-            .send(Packet::unreliable(client_address(), dummy.clone()))
+            .send(Packet::unreliable(client_address(), dummy.clone(), "received packet"))
             .unwrap();
         server.manual_poll(time);
 
@@ -994,7 +1003,7 @@ mod tests {
 
         let exceeds = b"Fragmented string".to_vec();
         client
-            .send(Packet::reliable_ordered(server_address(), exceeds, None))
+            .send(Packet::reliable_ordered(server_address(), exceeds, None, "user packet"))
             .unwrap();
         client.manual_poll(time);
 
@@ -1005,11 +1014,12 @@ mod tests {
                 client_address(),
                 dummy.clone(),
                 None,
+                "user packet"
             ))
             .unwrap();
 
         client
-            .send(Packet::unreliable(server_address(), dummy.clone()))
+            .send(Packet::unreliable(server_address(), dummy.clone(), "user packet"))
             .unwrap();
         client.manual_poll(time);
         server.manual_poll(time);
@@ -1025,6 +1035,7 @@ mod tests {
                     server_address(),
                     dummy.clone(),
                     None,
+                    "user packet"
                 ))
                 .unwrap();
             client.manual_poll(time);
@@ -1033,6 +1044,7 @@ mod tests {
                     client_address(),
                     dummy.clone(),
                     None,
+                    "user packet"
                 ))
                 .unwrap();
             server.manual_poll(time);
