@@ -104,7 +104,7 @@ impl Display for DecodingErrorKind {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum PacketErrorKind {
     /// The maximal allowed size of the packet was exceeded
-    ExceededMaxPacketSize,
+    ExceededMaxPacketSize(usize, usize),
     /// Only `PacketType::Packet` can be fragmented
     PacketCannotBeFragmented,
 }
@@ -112,8 +112,8 @@ pub enum PacketErrorKind {
 impl Display for PacketErrorKind {
     fn fmt(&self, fmt: &mut Formatter<'_>) -> fmt::Result {
         match *self {
-            PacketErrorKind::ExceededMaxPacketSize => {
-                write!(fmt, "The packet size was bigger than the max allowed size.")
+            PacketErrorKind::ExceededMaxPacketSize(actual, max) => {
+                write!(fmt, "The packet size ({}) was bigger than the max allowed size ({}).", actual, max)
             }
             PacketErrorKind::PacketCannotBeFragmented => {
                 write!(fmt, "The packet type cannot be fragmented.")

@@ -130,7 +130,7 @@ impl VirtualConnection {
 
                     Ok(OutgoingPackets::one(builder.build()))
                 } else {
-                    Err(PacketErrorKind::ExceededMaxPacketSize.into())
+                    Err(PacketErrorKind::ExceededMaxPacketSize(packet.payload.len(), self.config.receive_buffer_max_size).into())
                 }
             }
             DeliveryGuarantee::Reliable => {
