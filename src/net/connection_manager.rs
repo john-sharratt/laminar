@@ -1,12 +1,21 @@
-use std::{self, collections::HashMap, fmt::Debug, io::{IoSlice, Result}, mem::MaybeUninit, ops::{Deref, DerefMut}, sync::{Arc, Mutex}};
-use coarsetime::Instant;
+use std::{
+    self,
+    collections::HashMap,
+    fmt::Debug,
+    io::{IoSlice, Result},
+    mem::MaybeUninit,
+    ops::{Deref, DerefMut},
+    sync::{Arc, Mutex},
+};
 
 use crossbeam_channel::{self, unbounded, Receiver, Sender};
 use log::error;
 use socket2::SockAddr;
 
+use super::connection::MomentInTime;
 use crate::{
-    config::Config, net::{Connection, ConnectionEventAddress, ConnectionMessenger},
+    config::Config,
+    net::{Connection, ConnectionEventAddress, ConnectionMessenger},
 };
 
 // TODO: maybe we can make a breaking change and use this instead of `ConnectionEventAddress` trait?
@@ -16,7 +25,12 @@ use crate::{
 /// A datagram socket is a type of network socket which provides a connectionless point for sending or receiving data packets.
 pub trait DatagramSocket: DatagramSocketSender + DatagramSocketReceiver + Debug {
     /// Returns the socket address that this socket was created from.
-    fn split(self) -> (Box<dyn DatagramSocketSender + Send + Sync>, Box<dyn DatagramSocketReceiver + Send + Sync>);
+    fn split(
+        self,
+    ) -> (
+        Box<dyn DatagramSocketSender + Send + Sync>,
+        Box<dyn DatagramSocketReceiver + Send + Sync>,
+    );
 }
 
 /// A datagram socket is a type of network socket which provides a connectionless point for sending or receiving data packets.
@@ -28,13 +42,20 @@ pub trait DatagramSocketSender: Debug {
     fn send_packet(&self, addr: &SockAddr, payload: &[u8]) -> Result<usize>;
 
     /// Sends a single packet made up of multiple buffers to the socket.
-    fn send_packet_vectored(&mut self, addr: &SockAddr, bufs: &[IoSlice<'_>]) -> std::io::Result<usize>;
+    fn send_packet_vectored(
+        &mut self,
+        addr: &SockAddr,
+        bufs: &[IoSlice<'_>],
+    ) -> std::io::Result<usize>;
 }
 
 /// A datagram socket is a type of network socket which provides a connectionless point for sending or receiving data packets.
 pub trait DatagramSocketReceiver: Debug {
     /// Receives a single packet from the socket.
-    fn receive_packet<'a>(&mut self, buffer: &'a mut [MaybeUninit<u8>]) -> Result<(&'a [u8], SockAddr)>;
+    fn receive_packet<'a>(
+        &mut self,
+        buffer: &'a mut [MaybeUninit<u8>],
+    ) -> Result<(&'a [u8], SockAddr)>;
 
     /// Returns the socket address that this socket was created from.
     fn local_addr(&self) -> Result<SockAddr>;
@@ -61,9 +82,12 @@ impl<ReceiveEvent: Debug> Clone for SocketEventSenderAndConfig<ReceiveEvent> {
     }
 }
 
-impl< ReceiveEvent: Debug> SocketEventSenderAndConfig<ReceiveEvent>
-{
-    fn new(config: Config, socket: Box<dyn DatagramSocketSender + Send + Sync>, event_sender: Sender<ReceiveEvent>) -> Self {
+impl<ReceiveEvent: Debug> SocketEventSenderAndConfig<ReceiveEvent> {
+    fn new(
+        config: Config,
+        socket: Box<dyn DatagramSocketSender + Send + Sync>,
+        event_sender: Sender<ReceiveEvent>,
+    ) -> Self {
         Self {
             config,
             socket,
@@ -88,7 +112,11 @@ impl<ReceiveEvent: Debug> ConnectionMessenger<ReceiveEvent>
         Ok(())
     }
 
-    fn send_packet_vectored(&mut self, address: &SockAddr, bufs: &[IoSlice<'_>]) -> std::io::Result<()> {
+    fn send_packet_vectored(
+        &mut self,
+        address: &SockAddr,
+        bufs: &[IoSlice<'_>],
+    ) -> std::io::Result<()> {
         self.socket.send_packet_vectored(address, bufs)?;
         Ok(())
     }
@@ -132,21 +160,17 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
 
     /// Splits the `ConnectionManager` into two parts: the `ConnectionManagerSender` and the `ConnectionManager`.
     pub fn split(self) -> (ConnectionSender<TConnection>, Self) {
-        (
-            self.tx.clone(),
-            self,
-        )
+        (self.tx.clone(), self)
     }
 
     /// Processes any inbound packets and events.
-    pub fn manual_poll_inbound(&mut self, time: Instant) -> std::io::Result<()> {
+    pub fn manual_poll_inbound(&mut self, time: TConnection::Instant) -> std::io::Result<()> {
         let mut unestablished_connections = self.unestablished_connection_count();
         let messenger = &mut self.tx.tx;
 
         // first we pull all newly arrived packets and handle them
         loop {
-            match self.rx.receive_packet(self.receive_buffer.as_mut())
-            {
+            match self.rx.receive_packet(self.receive_buffer.as_mut()) {
                 Ok((payload, address)) => {
                     let mut connections = self.connections.lock().unwrap();
                     if let Some(conn) = connections.get_mut(&address) {
@@ -156,7 +180,8 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
                             unestablished_connections = unestablished_connections.saturating_sub(1);
                         }
                     } else {
-                        let mut conn = TConnection::create_connection(messenger, address.clone(), time);
+                        let mut conn =
+                            TConnection::create_connection(messenger, address.clone(), time);
                         conn.process_packet(messenger, payload, time);
 
                         // We only allow a maximum amount number of unestablished connections to bet created
@@ -195,14 +220,14 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
 
     /// Processes connection specific logic for active connections.
     /// Removes dropped connections from active connections list.
-    pub fn manual_poll_update(&mut self, time: Instant) {
+    pub fn manual_poll_update(&mut self, time: TConnection::Instant) {
         self.tx.manual_poll_update(time);
     }
 
     /// Processes any inbound/outbound packets and events.
     /// Processes connection specific logic for active connections.
     /// Removes dropped connections from active connections list.
-    pub fn manual_poll(&mut self, time: Instant) -> std::io::Result<()> {
+    pub fn manual_poll(&mut self, time: TConnection::Instant) -> std::io::Result<()> {
         self.manual_poll_inbound(time)?;
         self.manual_poll_update(time);
         Ok(())
@@ -270,8 +295,7 @@ pub struct ConnectionSender<TConnection: Connection> {
     event_receiver: Receiver<TConnection::ReceiveEvent>,
 }
 
-impl<TConnection: Connection> Clone
-for ConnectionSender<TConnection> {
+impl<TConnection: Connection> Clone for ConnectionSender<TConnection> {
     fn clone(&self) -> Self {
         Self {
             connections: self.connections.clone(),
@@ -283,26 +307,41 @@ for ConnectionSender<TConnection> {
 
 impl<TConnection: Connection> ConnectionSender<TConnection> {
     /// Sends a single packet to the socket.
-    pub fn send(&self, event: TConnection::SendEvent) -> Result<()> {
+    pub fn send_only(&self, event: TConnection::SendEvent) -> Result<()> {
+        let now = TConnection::Instant::now();
+        self.send_only_with_now(event, now)
+    }
+
+    /// Sends a single packet to the socket.
+    pub fn send_only_with_now(
+        &self,
+        event: TConnection::SendEvent,
+        now: TConnection::Instant,
+    ) -> Result<()> {
         let messenger = &self.tx;
-        let time = Instant::now();
-        
+
         {
             // get or create connection
             let mut connections = self.connections.lock().unwrap();
-            let conn = connections.entry(event.address()).or_insert_with(|| {
-                TConnection::create_connection(messenger, event.address(), time)
-            });
-            conn.process_event(messenger, event, time);
+            let conn = connections
+                .entry(event.address())
+                .or_insert_with(|| TConnection::create_connection(messenger, event.address(), now));
+            conn.process_event(messenger, event, now);
         }
-        
-        self.manual_poll_update(time);
+        Ok(())
+    }
+
+    /// Sends a single packet to the socket.
+    pub fn send_and_poll(&self, event: TConnection::SendEvent) -> Result<()> {
+        let now = TConnection::Instant::now();
+        self.send_only_with_now(event, now)?;
+        self.manual_poll_update(now);
         Ok(())
     }
 
     /// Processes connection specific logic for active connections.
     /// Removes dropped connections from active connections list.
-    pub fn manual_poll_update(&self, time: Instant) {
+    pub fn manual_poll_update(&self, time: TConnection::Instant) {
         let messenger = &self.tx;
 
         // update all connections
@@ -344,13 +383,13 @@ impl<TConnection: Connection> ConnectionSender<TConnection> {
 
 #[cfg(test)]
 mod tests {
+    use coarsetime::Instant;
+    use socket2::SockAddr;
     use std::{
         collections::HashSet,
         net::{SocketAddr, SocketAddrV4},
         time::Duration,
     };
-    use coarsetime::Instant;
-    use socket2::SockAddr;
 
     use crate::test_utils::*;
     use crate::{Config, Packet, SocketEvent};
@@ -396,10 +435,10 @@ mod tests {
         let receiver = server.get_event_receiver();
 
         sender
-            .send(Packet::reliable_unordered(
+            .send_and_poll(Packet::reliable_unordered(
                 server_address(),
                 b"Hello world!".to_vec(),
-                "user packet"
+                "user packet",
             ))
             .unwrap();
 
@@ -424,7 +463,7 @@ mod tests {
             .send(Packet::reliable_unordered(
                 server_address(),
                 b"Do not arrive".to_vec(),
-                "user packet"
+                "user packet",
             ))
             .unwrap();
         client.manual_poll(time);
@@ -435,11 +474,19 @@ mod tests {
         // send a packet that the server receives
         for id in 0..u8::max_value() {
             client
-                .send(Packet::reliable_unordered(server_address(), vec![id], "user packet"))
+                .send(Packet::reliable_unordered(
+                    server_address(),
+                    vec![id],
+                    "user packet",
+                ))
                 .unwrap();
 
             server
-                .send(Packet::reliable_unordered(client_address(), vec![id], "user packet"))
+                .send(Packet::reliable_unordered(
+                    client_address(),
+                    vec![id],
+                    "user packet",
+                ))
                 .unwrap();
 
             client.manual_poll(time);
@@ -478,7 +525,7 @@ mod tests {
                 .send(Packet::unreliable(
                     server_address(),
                     vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
-                    "user packet"
+                    "user packet",
                 ))
                 .unwrap();
 
@@ -517,7 +564,7 @@ mod tests {
                 server_address(),
                 b"Do not arrive".to_vec(),
                 None,
-                "user packet"
+                "user packet",
             ))
             .unwrap();
         client.manual_poll(time);
@@ -528,11 +575,21 @@ mod tests {
         // send a packet that the server receives
         for id in 0..36 {
             client
-                .send(Packet::reliable_sequenced(server_address(), vec![id], None, "user packet"))
+                .send(Packet::reliable_sequenced(
+                    server_address(),
+                    vec![id],
+                    None,
+                    "user packet",
+                ))
                 .unwrap();
 
             server
-                .send(Packet::reliable_sequenced(client_address(), vec![id], None, "user packet"))
+                .send(Packet::reliable_sequenced(
+                    client_address(),
+                    vec![id],
+                    None,
+                    "user packet",
+                ))
                 .unwrap();
 
             client.manual_poll(time);
@@ -558,7 +615,7 @@ mod tests {
                 server_address(),
                 b"Do not arrive".to_vec(),
                 None,
-                "user packet"
+                "user packet",
             ))
             .unwrap();
         client.manual_poll(time);
@@ -569,11 +626,21 @@ mod tests {
         // send a packet that the server receives
         for id in 0..35 {
             client
-                .send(Packet::reliable_ordered(server_address(), vec![id], None, "user packet"))
+                .send(Packet::reliable_ordered(
+                    server_address(),
+                    vec![id],
+                    None,
+                    "user packet",
+                ))
                 .unwrap();
 
             server
-                .send(Packet::reliable_ordered(client_address(), vec![id], None, "user packet"))
+                .send(Packet::reliable_ordered(
+                    client_address(),
+                    vec![id],
+                    None,
+                    "user packet",
+                ))
                 .unwrap();
 
             client.manual_poll(time);
@@ -597,7 +664,12 @@ mod tests {
 
         for id in 0..100 {
             client
-                .send(Packet::reliable_sequenced(server_address(), vec![id], None, "user packet"))
+                .send(Packet::reliable_sequenced(
+                    server_address(),
+                    vec![id],
+                    None,
+                    "user packet",
+                ))
                 .unwrap();
             client.manual_poll(time);
             server.manual_poll(time);
@@ -638,7 +710,7 @@ mod tests {
                     server_address(),
                     id.to_string().as_bytes().to_vec(),
                     None,
-                    "user packet"
+                    "user packet",
                 ))
                 .unwrap();
             client.manual_poll(time);
@@ -676,7 +748,7 @@ mod tests {
                     server_address(),
                     id.to_string().as_bytes().to_vec(),
                     None,
-                    "user packet"
+                    "user packet",
                 ))
                 .unwrap();
             client.manual_poll(time);
@@ -706,7 +778,7 @@ mod tests {
                 .send(Packet::unreliable(
                     server_address(),
                     vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
-                    "user packet"
+                    "user packet",
                 ))
                 .unwrap();
         }
@@ -729,7 +801,7 @@ mod tests {
                 .send(Packet::unreliable(
                     server_address(),
                     vec![1, 2, 3, 4, 5, 6, 7, 8, 9],
-                    "user packet"
+                    "user packet",
                 ))
                 .unwrap();
         }
@@ -748,11 +820,19 @@ mod tests {
         let (mut server, mut client, _) = create_server_client_network();
 
         client
-            .send(Packet::unreliable(server_address(), vec![0, 1, 2], "user packet"))
+            .send(Packet::unreliable(
+                server_address(),
+                vec![0, 1, 2],
+                "user packet",
+            ))
             .unwrap();
 
         server
-            .send(Packet::unreliable(client_address(), vec![2, 1, 0], "user packet"))
+            .send(Packet::unreliable(
+                client_address(),
+                vec![2, 1, 0],
+                "user packet",
+            ))
             .unwrap();
 
         let now = Instant::now();
@@ -775,7 +855,11 @@ mod tests {
         let (mut server, mut client) = create_server_client(config.clone());
 
         client
-            .send(Packet::unreliable(server_address(), vec![0, 1, 2], "user packet"))
+            .send(Packet::unreliable(
+                server_address(),
+                vec![0, 1, 2],
+                "user packet",
+            ))
             .unwrap();
 
         let now = Instant::now();
@@ -784,7 +868,11 @@ mod tests {
 
         assert_eq!(
             server.recv().unwrap(),
-            SocketEvent::Packet(Packet::unreliable(client_address(), vec![0, 1, 2], "received packet"))
+            SocketEvent::Packet(Packet::unreliable(
+                client_address(),
+                vec![0, 1, 2],
+                "received packet"
+            ))
         );
 
         // acknowledge the client
@@ -807,19 +895,35 @@ mod tests {
         );
         assert_eq!(
             client.recv().unwrap(),
-            SocketEvent::Packet(Packet::unreliable(server_address(), vec![], "received packet"))
+            SocketEvent::Packet(Packet::unreliable(
+                server_address(),
+                vec![],
+                "received packet"
+            ))
         );
 
         // give just enough time for no timeout events to occur (yet)
-        server.manual_poll(now + coarsetime::Duration::from(config.idle_connection_timeout) - coarsetime::Duration::from_millis(50));
-        client.manual_poll(now + coarsetime::Duration::from(config.idle_connection_timeout) - coarsetime::Duration::from_millis(50));
+        server.manual_poll(
+            now + coarsetime::Duration::from(config.idle_connection_timeout)
+                - coarsetime::Duration::from_millis(50),
+        );
+        client.manual_poll(
+            now + coarsetime::Duration::from(config.idle_connection_timeout)
+                - coarsetime::Duration::from_millis(50),
+        );
 
         assert_eq!(server.recv(), None);
         assert_eq!(client.recv(), None);
 
         // give enough time for timeouts to be detected
-        server.manual_poll(now + coarsetime::Duration::from(config.idle_connection_timeout) + coarsetime::Duration::from_millis(50));
-        client.manual_poll(now + coarsetime::Duration::from(config.idle_connection_timeout) + coarsetime::Duration::from_millis(50));
+        server.manual_poll(
+            now + coarsetime::Duration::from(config.idle_connection_timeout)
+                + coarsetime::Duration::from_millis(50),
+        );
+        client.manual_poll(
+            now + coarsetime::Duration::from(config.idle_connection_timeout)
+                + coarsetime::Duration::from_millis(50),
+        );
 
         assert_eq!(
             server.recv().unwrap(),
@@ -849,7 +953,11 @@ mod tests {
         let (mut server, mut client) = create_server_client(config.clone());
         // initiate a connection
         client
-            .send(Packet::unreliable(server_address(), vec![0, 1, 2], "user packet"))
+            .send(Packet::unreliable(
+                server_address(),
+                vec![0, 1, 2],
+                "user packet",
+            ))
             .unwrap();
 
         let now = Instant::now();
@@ -858,7 +966,11 @@ mod tests {
 
         assert_eq!(
             server.recv().unwrap(),
-            SocketEvent::Packet(Packet::unreliable(client_address(), vec![0, 1, 2], "received packet"))
+            SocketEvent::Packet(Packet::unreliable(
+                client_address(),
+                vec![0, 1, 2],
+                "received packet"
+            ))
         );
 
         // acknowledge the client
@@ -885,7 +997,11 @@ mod tests {
         // make sure the connection was successful on the client side
         assert_eq!(
             client.recv().unwrap(),
-            SocketEvent::Packet(Packet::unreliable(server_address(), vec![], "received packet"))
+            SocketEvent::Packet(Packet::unreliable(
+                server_address(),
+                vec![],
+                "received packet"
+            ))
         );
 
         // give time to send heartbeats
@@ -955,7 +1071,11 @@ mod tests {
         // with payload 35
         events.clear();
         client
-            .send(Packet::unreliable(server_address(), vec![35], "user packet"))
+            .send(Packet::unreliable(
+                server_address(),
+                vec![35],
+                "user packet",
+            ))
             .unwrap();
         client.manual_poll(now);
 
@@ -991,11 +1111,19 @@ mod tests {
         // ---
 
         client
-            .send(Packet::unreliable(server_address(), dummy.clone(), "user packet"))
+            .send(Packet::unreliable(
+                server_address(),
+                dummy.clone(),
+                "user packet",
+            ))
             .unwrap();
         client.manual_poll(time);
         server
-            .send(Packet::unreliable(client_address(), dummy.clone(), "received packet"))
+            .send(Packet::unreliable(
+                client_address(),
+                dummy.clone(),
+                "received packet",
+            ))
             .unwrap();
         server.manual_poll(time);
 
@@ -1003,7 +1131,12 @@ mod tests {
 
         let exceeds = b"Fragmented string".to_vec();
         client
-            .send(Packet::reliable_ordered(server_address(), exceeds, None, "user packet"))
+            .send(Packet::reliable_ordered(
+                server_address(),
+                exceeds,
+                None,
+                "user packet",
+            ))
             .unwrap();
         client.manual_poll(time);
 
@@ -1014,12 +1147,16 @@ mod tests {
                 client_address(),
                 dummy.clone(),
                 None,
-                "user packet"
+                "user packet",
             ))
             .unwrap();
 
         client
-            .send(Packet::unreliable(server_address(), dummy.clone(), "user packet"))
+            .send(Packet::unreliable(
+                server_address(),
+                dummy.clone(),
+                "user packet",
+            ))
             .unwrap();
         client.manual_poll(time);
         server.manual_poll(time);
@@ -1035,7 +1172,7 @@ mod tests {
                     server_address(),
                     dummy.clone(),
                     None,
-                    "user packet"
+                    "user packet",
                 ))
                 .unwrap();
             client.manual_poll(time);
@@ -1044,7 +1181,7 @@ mod tests {
                     client_address(),
                     dummy.clone(),
                     None,
-                    "user packet"
+                    "user packet",
                 ))
                 .unwrap();
             server.manual_poll(time);

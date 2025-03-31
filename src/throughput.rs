@@ -1,17 +1,16 @@
 use std::fmt::{self, Debug, Display};
 use std::time::Duration;
-use coarsetime::Instant;
 
 /// Entry for throughput monitor with measured information.
 #[derive(Debug)]
-struct ThroughputEntry {
+struct ThroughputEntry<T: MomentInTime> {
     measured_throughput: u32,
     _start: Instant,
 }
 
 impl ThroughputEntry {
     /// Constructs a new throughput entry.
-    pub fn new(measured_throughput: u32, time: Instant) -> ThroughputEntry {
+    pub fn new(measured_throughput: u32, time: T) -> ThroughputEntry {
         ThroughputEntry {
             measured_throughput,
             _start: time,
@@ -25,19 +24,19 @@ impl ThroughputEntry {
 /// For each duration an entry is created to keep track of the history of throughput.
 ///
 /// With this type you can calculate the average or get the total and last measured throughput.
-pub struct ThroughputMonitoring {
+pub struct ThroughputMonitoring<T: MomentInTime> {
     throughput_duration: Duration,
-    timer: Instant,
+    timer: T,
     current_throughput: u32,
     measured_throughput: Vec<ThroughputEntry>,
 }
 
-impl ThroughputMonitoring {
+impl<T: MomentInTime> ThroughputMonitoring<T> {
     /// Constructs a new instance of `ThroughputMonitoring`.
     pub fn new(throughput_duration: Duration) -> ThroughputMonitoring {
         ThroughputMonitoring {
             throughput_duration,
-            timer: Instant::now(),
+            timer: T::now(),
             current_throughput: 0,
             measured_throughput: Vec::new(),
         }
@@ -49,7 +48,7 @@ impl ThroughputMonitoring {
             self.measured_throughput
                 .push(ThroughputEntry::new(self.current_throughput, self.timer));
             self.current_throughput = 0;
-            self.timer = Instant::now();
+            self.timer = T::now();
             true
         } else {
             self.current_throughput += 1;
@@ -94,7 +93,7 @@ impl ThroughputMonitoring {
     }
 }
 
-impl Debug for ThroughputMonitoring {
+impl<T: MomentInTime> Debug for ThroughputMonitoring<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
@@ -106,7 +105,7 @@ impl Debug for ThroughputMonitoring {
     }
 }
 
-impl Display for ThroughputMonitoring {
+impl<T: MomentInTime> Display for ThroughputMonitoring<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,

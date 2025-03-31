@@ -1,7 +1,11 @@
 use std::{
-    self, io::IoSlice, mem::MaybeUninit, net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs}, thread::{sleep, yield_now}, time::Duration
+    self,
+    io::IoSlice,
+    mem::MaybeUninit,
+    net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs},
+    thread::{sleep, yield_now},
+    time::Duration,
 };
-use coarsetime::Instant;
 
 use crossbeam_channel::{self, Receiver, TryRecvError};
 use socket2::SockAddr;
@@ -15,7 +19,10 @@ use crate::{
     packet::Packet,
 };
 
-use super::{connection_manager::ConnectionSender, DatagramSocketReceiver, DatagramSocketSender};
+use super::{
+    connection::MomentInTime, connection_manager::ConnectionSender, DatagramSocketReceiver,
+    DatagramSocketSender,
+};
 
 fn create_socket(listen_addr: socket2::SockAddr) -> std::io::Result<socket2::Socket> {
     let socket = socket2::Socket::new(
@@ -54,16 +61,16 @@ struct SocketWithConditioner {
 impl SocketWithConditioner {
     pub fn new(socket: socket2::Socket, is_blocking_mode: bool) -> Result<Self> {
         let socket_tx = create_socket(socket.local_addr()?)?;
-        let socket_rx = socket;         
+        let socket_rx = socket;
         Ok(SocketWithConditioner {
             rx: SocketWithConditionerRx {
                 is_blocking_mode,
                 socket_rx,
             },
-            tx : SocketWithConditionerTx {
+            tx: SocketWithConditionerTx {
                 socket_tx,
                 link_conditioner: None,
-            }
+            },
         })
     }
 
@@ -74,7 +81,12 @@ impl SocketWithConditioner {
 }
 
 impl DatagramSocket for SocketWithConditioner {
-    fn split(self) -> (Box<dyn DatagramSocketSender + Send + Sync>, Box<dyn DatagramSocketReceiver + Send + Sync>) {
+    fn split(
+        self,
+    ) -> (
+        Box<dyn DatagramSocketSender + Send + Sync>,
+        Box<dyn DatagramSocketReceiver + Send + Sync>,
+    ) {
         (Box::new(self.tx), Box::new(self.rx))
     }
 }
@@ -91,7 +103,11 @@ impl DatagramSocketSender for SocketWithConditioner {
         self.tx.send_packet(addr, payload)
     }
 
-    fn send_packet_vectored(&mut self, addr: &SockAddr, bufs: &[IoSlice<'_>]) -> std::io::Result<usize> {
+    fn send_packet_vectored(
+        &mut self,
+        addr: &SockAddr,
+        bufs: &[IoSlice<'_>],
+    ) -> std::io::Result<usize> {
         self.tx.send_packet_vectored(addr, bufs)
     }
 }
@@ -136,7 +152,11 @@ impl DatagramSocketSender for SocketWithConditionerTx {
     }
 
     // Determinate whether packet will be sent or not based on `LinkConditioner` if enabled.
-    fn send_packet_vectored(&mut self, addr: &SockAddr, bufs: &[IoSlice<'_>]) -> std::io::Result<usize> {
+    fn send_packet_vectored(
+        &mut self,
+        addr: &SockAddr,
+        bufs: &[IoSlice<'_>],
+    ) -> std::io::Result<usize> {
         if cfg!(feature = "tester") {
             if let Some(ref mut link) = &mut self.link_conditioner {
                 if !link.should_send() {
@@ -182,7 +202,11 @@ impl DatagramSocketSender for Box<dyn DatagramSocketSender> {
         (**self).send_packet(addr, payload)
     }
 
-    fn send_packet_vectored(&mut self, addr: &SockAddr, bufs: &[IoSlice<'_>]) -> std::io::Result<usize> {
+    fn send_packet_vectored(
+        &mut self,
+        addr: &SockAddr,
+        bufs: &[IoSlice<'_>],
+    ) -> std::io::Result<usize> {
         (**self).send_packet_vectored(addr, bufs)
     }
 }
@@ -206,11 +230,11 @@ impl DatagramSocketReceiver for Box<dyn DatagramSocketReceiver> {
 
 /// A reliable UDP socket implementation with configurable reliability and ordering guarantees.
 #[derive(Debug)]
-pub struct Socket {
-    handler: ConnectionManager<VirtualConnection>,
+pub struct Socket<T: MomentInTime> {
+    handler: ConnectionManager<VirtualConnection<T>>,
 }
 
-impl Socket {
+impl<T: MomentInTime> Socket<T> {
     /// Binds to the socket and then sets up `ActiveConnections` to manage the "connections".
     /// Because UDP connections are not persistent, we can only infer the status of the remote
     /// endpoint by looking to see if they are still sending packets or not
@@ -252,18 +276,15 @@ impl Socket {
     }
 
     /// Splits the socket its a sender and receiver half
-    pub fn split(self) -> (SocketTx, SocketRx) {
+    pub fn split(self) -> (SocketTx<T>, SocketRx<T>) {
         let (tx, rx) = self.handler.split();
-        (
-            SocketTx { handler: tx },
-            SocketRx { handler: rx },
-        )
+        (SocketTx { handler: tx }, SocketRx { handler: rx })
     }
 
     /// Returns a handle to the packet sender which provides a thread-safe way to enqueue packets
     /// to be processed. This should be used when the socket is busy running its polling loop in a
     /// separate thread.
-    pub fn get_packet_sender(&self) -> ConnectionSender<VirtualConnection> {
+    pub fn get_packet_sender(&self) -> ConnectionSender<VirtualConnection<T>> {
         self.handler.event_sender()
     }
 
@@ -278,7 +299,16 @@ impl Socket {
     pub fn send(&mut self, packet: Packet) -> Result<()> {
         self.handler
             .event_sender()
-            .send(packet)
+            .send_only(packet)
+            .expect("Receiver must exists.");
+        Ok(())
+    }
+
+    /// Sends a single packet and polls
+    pub fn send_and_poll(&mut self, packet: Packet) -> Result<()> {
+        self.handler
+            .event_sender()
+            .send_and_poll(packet)
             .expect("Receiver must exists.");
         Ok(())
     }
@@ -301,10 +331,13 @@ impl Socket {
 
     /// Runs the polling loop with a specified sleep duration. This should run in a spawned thread
     /// since calls to `self.manual_poll` are blocking.
-    pub fn start_polling_with_duration(&mut self, sleep_duration: Option<Duration>) -> std::io::Result<()> {
+    pub fn start_polling_with_duration(
+        &mut self,
+        sleep_duration: Option<Duration>,
+    ) -> std::io::Result<()> {
         // nothing should break out of this loop!
         loop {
-            self.manual_poll(Instant::now())?;
+            self.manual_poll(T::now())?;
             match sleep_duration {
                 None => yield_now(),
                 Some(duration) => sleep(duration),
@@ -313,7 +346,18 @@ impl Socket {
     }
 
     /// Processes any inbound/outbound packets and handle idle clients
-    pub fn manual_poll(&mut self, time: Instant) -> std::io::Result<()> {
+    pub fn manual_poll_inbound(&mut self, time: T) -> std::io::Result<()> {
+        self.handler.manual_poll_inbound(time)?;
+        Ok(())
+    }
+
+    /// Processes any inbound/outbound packets and handle idle clients
+    pub fn manual_poll_update(&mut self, time: T) {
+        self.handler.manual_poll_update(time);
+    }
+
+    /// Processes any inbound/outbound packets and handle idle clients
+    pub fn manual_poll(&mut self, time: T) -> std::io::Result<()> {
         self.handler.manual_poll(time)?;
         Ok(())
     }
@@ -334,28 +378,25 @@ impl Socket {
 
 /// A reliable UDP socket implementation with configurable reliability and ordering guarantees.
 #[derive(Debug)]
-pub struct SocketTx {
-    handler: ConnectionSender<VirtualConnection>,
+pub struct SocketTx<T: MomentInTime> {
+    handler: ConnectionSender<VirtualConnection<T>>,
 }
 
-impl SocketTx {
+impl<T: MomentInTime> SocketTx<T> {
     /// Sends a single packet
     pub fn send(&mut self, packet: Packet) -> Result<()> {
-        self.handler
-            .send(packet)?;
+        self.handler.send_and_poll(packet)?;
         Ok(())
     }
 }
 
-
-
 /// A reliable UDP socket implementation with configurable reliability and ordering guarantees.
 #[derive(Debug)]
-pub struct SocketRx {
-    handler: ConnectionManager<VirtualConnection>,
+pub struct SocketRx<T: MomentInTime> {
+    handler: ConnectionManager<VirtualConnection<T>>,
 }
 
-impl SocketRx {
+impl<T: MomentInTime> SocketRx<T> {
     /// Returns a handle to the event receiver which provides a thread-safe way to retrieve events
     /// from the socket. This should be used when the socket is busy running its polling loop in
     /// a separate thread.
@@ -381,10 +422,13 @@ impl SocketRx {
 
     /// Runs the polling loop with a specified sleep duration. This should run in a spawned thread
     /// since calls to `self.manual_poll` are blocking.
-    pub fn start_polling_with_duration(&mut self, sleep_duration: Option<Duration>) -> std::io::Result<()> {
+    pub fn start_polling_with_duration(
+        &mut self,
+        sleep_duration: Option<Duration>,
+    ) -> std::io::Result<()> {
         // nothing should break out of this loop!
         loop {
-            self.manual_poll(Instant::now())?;
+            self.manual_poll(T::now())?;
             match sleep_duration {
                 None => yield_now(),
                 Some(duration) => sleep(duration),
@@ -393,7 +437,7 @@ impl SocketRx {
     }
 
     /// Processes any inbound/outbound packets and handle idle clients
-    pub fn manual_poll(&mut self, time: Instant) -> std::io::Result<()> {
+    pub fn manual_poll(&mut self, time: T) -> std::io::Result<()> {
         self.handler.manual_poll(time)?;
         Ok(())
     }

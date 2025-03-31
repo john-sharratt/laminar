@@ -8,7 +8,7 @@ use laminar::{Config, Packet, Socket, SocketEvent};
 #[test]
 fn binding_to_any() {
     // bind to 10 different addresses
-    let sock_without_config = (0..5).map(|_| Socket::bind_any());
+    let sock_without_config = (0..5).map(|_| Socket::<coarsetime::Instant>::bind_any());
     let sock_with_config = (0..5).map(|_| Socket::bind_any_with_config(Config::default()));
 
     let valid_socks: Vec<_> = sock_without_config
@@ -57,7 +57,7 @@ fn blocking_sender_and_receiver() {
 fn local_addr() {
     let port = 40000;
     let socket =
-        Socket::bind(format!("127.0.0.1:{}", port).parse::<SocketAddr>().unwrap()).unwrap();
+        Socket::<coarsetime::Instant>::bind(format!("127.0.0.1:{}", port).parse::<SocketAddr>().unwrap()).unwrap();
     assert_eq!(port, socket.local_addr().unwrap().as_socket().unwrap().port());
 }
 

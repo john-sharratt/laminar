@@ -1,11 +1,10 @@
-use coarsetime::Instant;
-
 use log::{debug, error, warn};
 use socket2::SockAddr;
 
 use crate::error::{ErrorKind, Result};
 use crate::packet::{DeliveryGuarantee, OutgoingPackets, Packet, PacketInfo};
 
+use super::connection::MomentInTime;
 use super::{
     events::SocketEvent, Connection, ConnectionEventAddress, ConnectionMessenger, VirtualConnection,
 };
@@ -32,11 +31,25 @@ impl ConnectionEventAddress for Packet {
     }
 }
 
-impl Connection for VirtualConnection {
+impl MomentInTime for coarsetime::Instant {
+    /// Returns a time in milliseconds.
+    fn duration_since(&self, other: Self) -> std::time::Duration {
+        self.duration_since(other).into()
+    }
+
+    /// Returns the current time in milliseconds.
+    fn now() -> Self {
+        coarsetime::Instant::now()
+    }
+}
+
+impl<T: MomentInTime> Connection for VirtualConnection<T> {
     /// Defines a user event type.
     type SendEvent = Packet;
     /// Defines a connection event type.
     type ReceiveEvent = SocketEvent;
+    /// Defines a moment in time.
+    type Instant = T;
 
     /// Creates new connection and initialize it by sending an connection event to the user.
     /// * address - defines a address that connection is associated with.
@@ -45,8 +58,8 @@ impl Connection for VirtualConnection {
     fn create_connection(
         messenger: &impl ConnectionMessenger<Self::ReceiveEvent>,
         address: SockAddr,
-        time: Instant,
-    ) -> VirtualConnection {
+        time: Self::Instant,
+    ) -> VirtualConnection<Self::Instant> {
         VirtualConnection::new(address, messenger.config(), time)
     }
 
@@ -59,7 +72,7 @@ impl Connection for VirtualConnection {
     fn should_drop(
         &mut self,
         messenger: &impl ConnectionMessenger<Self::ReceiveEvent>,
-        time: Instant,
+        time: Self::Instant,
     ) -> bool {
         let too_many = self.packets_in_flight() > messenger.config().max_packets_in_flight;
         let too_late = self.last_heard(time) >= messenger.config().idle_connection_timeout;
@@ -92,7 +105,7 @@ impl Connection for VirtualConnection {
         &mut self,
         messenger: &mut impl ConnectionMessenger<Self::ReceiveEvent>,
         payload: &[u8],
-        time: Instant,
+        time: Self::Instant,
     ) {
         if !payload.is_empty() {
             match self.process_incoming(payload, time) {
@@ -123,7 +136,7 @@ impl Connection for VirtualConnection {
         &mut self,
         messenger: &impl ConnectionMessenger<Self::ReceiveEvent>,
         event: Self::SendEvent,
-        time: Instant,
+        time: Self::Instant,
     ) {
         let addr = self.remote_address.clone();
         if self.record_send() {
@@ -151,7 +164,7 @@ impl Connection for VirtualConnection {
     fn update(
         &mut self,
         messenger: &impl ConnectionMessenger<Self::ReceiveEvent>,
-        time: Instant,
+        time: Self::Instant,
     ) {
         // resend dropped packets
         for dropped in self.gather_dropped_packets() {

@@ -1,7 +1,6 @@
+use socket2::SockAddr;
 use std::fmt;
 use std::time::Duration;
-use coarsetime::Instant;
-use socket2::SockAddr;
 
 use crate::{
     config::Config,
@@ -15,17 +14,21 @@ use crate::{
         STANDARD_HEADER_SIZE,
     },
     packet::{
-        DeliveryGuarantee, FragmentNumber, IncomingPackets, OrderingGuarantee, OutgoingPacketBuilder, OutgoingPackets, Packet, PacketInfo, PacketReader, PacketType, SequenceNumber
+        DeliveryGuarantee, FragmentNumber, IncomingPackets, OrderingGuarantee,
+        OutgoingPacketBuilder, OutgoingPackets, Packet, PacketInfo, PacketReader, PacketType,
+        SequenceNumber,
     },
 };
 
+use super::connection::MomentInTime;
+
 /// Contains the information about a certain 'virtual connection' over udp.
 /// This connections also keeps track of network quality, processing packets, buffering data related to connection etc.
-pub struct VirtualConnection {
+pub struct VirtualConnection<T: MomentInTime> {
     /// Last time we received a packet from this client
-    pub last_heard: Instant,
+    pub last_heard: T,
     /// Last time we sent a packet to this client
-    pub last_sent: Instant,
+    pub last_sent: T,
     /// The address of the remote endpoint
     pub remote_address: SockAddr,
 
@@ -40,9 +43,9 @@ pub struct VirtualConnection {
     fragmentation: Fragmentation,
 }
 
-impl VirtualConnection {
+impl<T: MomentInTime> VirtualConnection<T> {
     /// Creates and returns a new Connection that wraps the provided socket address
-    pub fn new(addr: SockAddr, config: &Config, time: Instant) -> VirtualConnection {
+    pub fn new(addr: SockAddr, config: &Config, time: T) -> VirtualConnection<T> {
         VirtualConnection {
             last_heard: time,
             last_sent: time,
@@ -55,6 +58,11 @@ impl VirtualConnection {
             fragmentation: Fragmentation::new(config),
             config: config.to_owned(),
         }
+    }
+
+    /// Returns the current time
+    pub fn now() -> T {
+        T::now()
     }
 
     /// Records that this connection has sent a packet. Returns whether the connection has
@@ -86,14 +94,14 @@ impl VirtualConnection {
     }
 
     /// Returns a [Duration] representing the interval since we last heard from the client
-    pub fn last_heard(&self, time: Instant) -> Duration {
+    pub fn last_heard(&self, time: T) -> Duration {
         // TODO: Replace with `saturating_duration_since` once it becomes stable.
         // this function panics if the user supplies a time instant earlier than last_heard
         time.duration_since(self.last_heard).into()
     }
 
     /// Returns a [Duration] representing the interval since we last sent to the client
-    pub fn last_sent(&self, time: Instant) -> Duration {
+    pub fn last_sent(&self, time: T) -> Duration {
         // TODO: Replace with `saturating_duration_since` once it becomes stable.
         // this function panics if the user supplies a time instant earlier than last_heard
         time.duration_since(self.last_sent).into()
@@ -104,7 +112,7 @@ impl VirtualConnection {
         &mut self,
         packet: PacketInfo<'a>,
         last_item_identifier: Option<SequenceNumber>,
-        time: Instant,
+        time: T,
     ) -> Result<OutgoingPackets<'a>> {
         self.last_sent = time;
         match packet.delivery {
@@ -130,11 +138,15 @@ impl VirtualConnection {
 
                     Ok(OutgoingPackets::one(builder.build()))
                 } else {
-                    Err(PacketErrorKind::ExceededMaxPacketSize(packet.payload.len(), self.config.receive_buffer_max_size).into())
+                    Err(PacketErrorKind::ExceededMaxPacketSize(
+                        packet.payload.len(),
+                        self.config.receive_buffer_max_size,
+                    )
+                    .into())
                 }
             }
             DeliveryGuarantee::Reliable => {
-                let payload_length = packet.payload.len() ;
+                let payload_length = packet.payload.len();
 
                 let mut item_identifier_value = None;
                 let outgoing = {
@@ -204,7 +216,6 @@ impl VirtualConnection {
                                 .into_iter()
                                 .enumerate()
                                 .map(|(fragment_id, fragment)| {
-
                                     let mut builder = OutgoingPacketBuilder::new(fragment)
                                         .with_default_header(
                                             PacketType::Fragment, // change from Packet to Fragment type, it only matters when assembling/dissasembling packet header.
@@ -250,11 +261,7 @@ impl VirtualConnection {
     }
 
     /// Processes the incoming data and returns a packet once the data is complete.
-    pub fn process_incoming(
-        &mut self,
-        received_data: &[u8],
-        time: Instant,
-    ) -> Result<IncomingPackets> {
+    pub fn process_incoming(&mut self, received_data: &[u8], time: T) -> Result<IncomingPackets> {
         self.last_heard = time;
 
         let mut packet_reader = PacketReader::new(received_data);
@@ -360,7 +367,8 @@ impl VirtualConnection {
                     );
 
                     if let OrderingGuarantee::Sequenced(_) = header.ordering_guarantee() {
-                        let arranging_header = packet_reader.read_arranging_header(STANDARD_HEADER_SIZE + ACKED_PACKET_HEADER)?;
+                        let arranging_header = packet_reader
+                            .read_arranging_header(STANDARD_HEADER_SIZE + ACKED_PACKET_HEADER)?;
 
                         let payload = packet_reader.read_payload();
 
@@ -385,8 +393,8 @@ impl VirtualConnection {
                             ));
                         }
                     } else if let OrderingGuarantee::Ordered(_id) = header.ordering_guarantee() {
-                        let arranging_header = packet_reader.read_arranging_header(
-                            STANDARD_HEADER_SIZE + ACKED_PACKET_HEADER)?;
+                        let arranging_header = packet_reader
+                            .read_arranging_header(STANDARD_HEADER_SIZE + ACKED_PACKET_HEADER)?;
 
                         let payload = packet_reader.read_payload();
 
@@ -445,29 +453,28 @@ impl VirtualConnection {
     }
 }
 
-impl fmt::Debug for VirtualConnection {
+impl<T: MomentInTime> fmt::Debug for VirtualConnection<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "{:?}",
-            self.remote_address,
-        )
+        write!(f, "{:?}", self.remote_address,)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
     use coarsetime::Instant;
+    use std::io::Write;
 
     use byteorder::{BigEndian, WriteBytesExt};
     use socket2::SockAddr;
 
-    use crate::PROTOCOL_VERSION;
     use crate::config::Config;
     use crate::net::constants;
     use crate::packet::header::{AckedPacketHeader, ArrangingHeader, HeaderWriter, StandardHeader};
-    use crate::packet::{DeliveryGuarantee, EnumConverter, FragmentNumber, OrderingGuarantee, Packet, PacketInfo, PacketType, SequenceNumber};
+    use crate::packet::{
+        DeliveryGuarantee, EnumConverter, FragmentNumber, OrderingGuarantee, Packet, PacketInfo,
+        PacketType, SequenceNumber,
+    };
+    use crate::PROTOCOL_VERSION;
 
     use super::VirtualConnection;
 
@@ -490,7 +497,10 @@ mod tests {
             .next()
             .unwrap();
         let in_packet = connection
-            .process_incoming(&out_packet.contents(), curr_heard + coarsetime::Duration::from_secs(2))
+            .process_incoming(
+                &out_packet.contents(),
+                curr_heard + coarsetime::Duration::from_secs(2),
+            )
             .unwrap()
             .into_iter()
             .next();
@@ -516,40 +526,37 @@ mod tests {
         let standard_header = [
             protocol_version,
             PacketType::Fragment.to_u8().to_be_bytes().to_vec(),
-            vec![1, 2]
-        ].concat();
+            vec![1, 2],
+        ]
+        .concat();
 
-        let acked_header = vec!
-            [
-                (0 as SequenceNumber).to_be_bytes().to_vec(),
-                (0 as FragmentNumber).to_be_bytes().to_vec(),
-                (4 as FragmentNumber).to_be_bytes().to_vec(),
-                (0 as SequenceNumber).to_be_bytes().to_vec(),
-                (0 as SequenceNumber).wrapping_sub(1).to_be_bytes().to_vec(),
-                vec![0, 0, 0, 0]
-            ]
-            .concat();
-        let first_fragment = vec!
-            [
-                (0 as SequenceNumber).to_be_bytes().to_vec(),
-                (1 as FragmentNumber).to_be_bytes().to_vec(),
-                (4 as FragmentNumber).to_be_bytes().to_vec(),
-            ]
-            .concat();
-        let second_fragment = vec!
-            [
-                (0 as SequenceNumber).to_be_bytes().to_vec(),
-                (2 as FragmentNumber).to_be_bytes().to_vec(),
-                (4 as FragmentNumber).to_be_bytes().to_vec(),
-            ]
-            .concat();
-        let third_fragment = vec!
-            [
-                (0 as SequenceNumber).to_be_bytes().to_vec(),                
-                (3 as FragmentNumber).to_be_bytes().to_vec(),
-                (4 as FragmentNumber).to_be_bytes().to_vec(),
-            ]
-            .concat();
+        let acked_header = vec![
+            (0 as SequenceNumber).to_be_bytes().to_vec(),
+            (0 as FragmentNumber).to_be_bytes().to_vec(),
+            (4 as FragmentNumber).to_be_bytes().to_vec(),
+            (0 as SequenceNumber).to_be_bytes().to_vec(),
+            (0 as SequenceNumber).wrapping_sub(1).to_be_bytes().to_vec(),
+            vec![0, 0, 0, 0],
+        ]
+        .concat();
+        let first_fragment = vec![
+            (0 as SequenceNumber).to_be_bytes().to_vec(),
+            (1 as FragmentNumber).to_be_bytes().to_vec(),
+            (4 as FragmentNumber).to_be_bytes().to_vec(),
+        ]
+        .concat();
+        let second_fragment = vec![
+            (0 as SequenceNumber).to_be_bytes().to_vec(),
+            (2 as FragmentNumber).to_be_bytes().to_vec(),
+            (4 as FragmentNumber).to_be_bytes().to_vec(),
+        ]
+        .concat();
+        let third_fragment = vec![
+            (0 as SequenceNumber).to_be_bytes().to_vec(),
+            (3 as FragmentNumber).to_be_bytes().to_vec(),
+            (4 as FragmentNumber).to_be_bytes().to_vec(),
+        ]
+        .concat();
 
         let mut connection = create_virtual_connection();
         let packet = connection
@@ -703,7 +710,7 @@ mod tests {
                 get_fake_addr(),
                 PAYLOAD.to_vec(),
                 Some(1),
-                "received packet"
+                "received packet",
             )),
             1,
         );
@@ -716,7 +723,7 @@ mod tests {
                 get_fake_addr(),
                 PAYLOAD.to_vec(),
                 Some(1),
-                "received packet"
+                "received packet",
             )),
             3,
         );
@@ -737,7 +744,7 @@ mod tests {
                 get_fake_addr(),
                 PAYLOAD.to_vec(),
                 Some(1),
-                "received packet"
+                "received packet",
             )),
             4,
         );
@@ -750,7 +757,7 @@ mod tests {
                 get_fake_addr(),
                 PAYLOAD.to_vec(),
                 Some(1),
-                "received packet"
+                "received packet",
             )),
             5,
         );
@@ -768,7 +775,7 @@ mod tests {
                 get_fake_addr(),
                 PAYLOAD.to_vec(),
                 Some(1),
-                "received packet"
+                "received packet",
             )),
             0,
         );
@@ -797,7 +804,7 @@ mod tests {
                 get_fake_addr(),
                 PAYLOAD.to_vec(),
                 Some(1),
-                "received packet"
+                "received packet",
             )),
             1,
         );
@@ -827,7 +834,7 @@ mod tests {
                 get_fake_addr(),
                 PAYLOAD.to_vec(),
                 Some(1),
-                "received packet"
+                "received packet",
             )),
             1,
         );
@@ -840,7 +847,7 @@ mod tests {
                 get_fake_addr(),
                 PAYLOAD.to_vec(),
                 Some(1),
-                "received packet"
+                "received packet",
             )),
             0,
         );
@@ -887,8 +894,9 @@ mod tests {
             (4 as FragmentNumber).to_be_bytes().to_vec(),
             (0 as SequenceNumber).to_be_bytes().to_vec(),
             (0 as SequenceNumber).wrapping_sub(1).to_be_bytes().to_vec(),
-            vec![0, 0, 0, 0]
-        ].concat();
+            vec![0, 0, 0, 0],
+        ]
+        .concat();
 
         use crate::error::{ErrorKind, FragmentErrorKind};
 
@@ -911,7 +919,7 @@ mod tests {
     }
 
     /// ======= helper functions =========
-    fn create_virtual_connection() -> VirtualConnection {
+    fn create_virtual_connection() -> VirtualConnection<coarsetime::Instant> {
         VirtualConnection::new(get_fake_addr(), &Config::default(), Instant::now())
     }
 
@@ -924,7 +932,7 @@ mod tests {
     fn assert_incoming_with_order(
         delivery: DeliveryGuarantee,
         ordering: OrderingGuarantee,
-        connection: &mut VirtualConnection,
+        connection: &mut VirtualConnection<coarsetime::Instant>,
         result_packet: Option<Packet>,
         order_id: SequenceNumber,
     ) {
@@ -974,7 +982,7 @@ mod tests {
     // assert that the given `DeliveryGuarantee` results into the given `Packet` after processing.
     fn assert_incoming_without_order(
         delivery: DeliveryGuarantee,
-        connection: &mut VirtualConnection,
+        connection: &mut VirtualConnection<coarsetime::Instant>,
         result_packet: Packet,
     ) {
         let mut packet = Vec::new();

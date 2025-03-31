@@ -4,12 +4,12 @@ use crossbeam_channel::Receiver;
 use socket2::SockAddr;
 
 use crate::net::{ConnectionManager, VirtualConnection};
-use crate::{test_utils::*, ConnectionSender};
 use crate::{error::Result, Config, Packet, SocketEvent};
+use crate::{test_utils::*, ConnectionSender};
 
 /// Provides a similar to the real a `Socket`, but with emulated socket implementation.
 pub struct FakeSocket {
-    handler: ConnectionManager<VirtualConnection>,
+    handler: ConnectionManager<VirtualConnection<coarsetime::Instant>>,
 }
 
 impl FakeSocket {
@@ -23,7 +23,7 @@ impl FakeSocket {
     /// Returns a handle to the packet sender which provides a thread-safe way to enqueue packets
     /// to be processed. This should be used when the socket is busy running its polling loop in a
     /// separate thread.
-    pub fn get_packet_sender(&self) -> ConnectionSender<VirtualConnection> {
+    pub fn get_packet_sender(&self) -> ConnectionSender<VirtualConnection<coarsetime::Instant>> {
         self.handler.event_sender()
     }
 
@@ -37,7 +37,14 @@ impl FakeSocket {
     /// Sends a packet.
     pub fn send(&mut self, packet: Packet) -> Result<()> {
         // we can savely unwrap, because receiver will always exist
-        self.handler.event_sender().send(packet).unwrap();
+        self.handler.event_sender().send_only(packet).unwrap();
+        Ok(())
+    }
+
+    /// Sends a packet and polls.
+    pub fn send_and_poll(&mut self, packet: Packet) -> Result<()> {
+        // we can savely unwrap, because receiver will always exist
+        self.handler.event_sender().send_and_poll(packet).unwrap();
         Ok(())
     }
 

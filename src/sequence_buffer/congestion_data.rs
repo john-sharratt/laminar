@@ -1,16 +1,14 @@
-use coarsetime::Instant;
-
 use crate::packet::SequenceNumber;
 
 #[derive(Clone)]
 /// This contains the information required to reassemble fragments.
-pub struct CongestionData {
+pub struct CongestionData<T: MomentInTime> {
     pub sequence: SequenceNumber,
-    pub sending_time: Instant,
+    pub sending_time: T,
 }
 
-impl CongestionData {
-    pub fn new(sequence: SequenceNumber, sending_time: Instant) -> Self {
+impl<T: MomentInTime> CongestionData<T> {
+    pub fn new(sequence: SequenceNumber, sending_time: T) -> Self {
         CongestionData {
             sequence,
             sending_time,
@@ -18,11 +16,11 @@ impl CongestionData {
     }
 }
 
-impl Default for CongestionData {
+impl<T: MomentInTime> Default for CongestionData<T> {
     fn default() -> Self {
         CongestionData {
             sequence: 0,
-            sending_time: Instant::now(),
+            sending_time: T::now(),
         }
     }
 }

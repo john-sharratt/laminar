@@ -33,7 +33,7 @@ pub use self::config::Config;
 pub use self::error::{ErrorKind, Result};
 pub use self::net::{
     Connection, ConnectionManager, ConnectionSender, ConnectionMessenger, DatagramSocket, DatagramSocketSender,
-    DatagramSocketReceiver, LinkConditioner, Socket, SocketRx, SocketTx,
+    DatagramSocketReceiver, LinkConditioner, Socket, SocketRx, SocketTx, MomentInTime,
     SocketEvent, VirtualConnection,
     constants::PROTOCOL_VERSION
 };
@@ -41,7 +41,7 @@ pub use self::packet::{DeliveryGuarantee, OrderingGuarantee, Packet};
 #[cfg(feature = "tester")]
 pub use self::throughput::ThroughputMonitoring;
 pub use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
-pub use coarsetime::{Duration, Instant};
+pub use coarsetime;
 pub use socket2;
 pub use packet::{SequenceNumber, StreamNumber, FragmentNumber};
 

@@ -1,5 +1,4 @@
-use std::{self, fmt::Debug, io::IoSlice};
-use coarsetime::Instant;
+use std::{self, fmt::Debug, io::IoSlice, time::Duration};
 use socket2::SockAddr;
 
 use crate::config::Config;
@@ -26,6 +25,15 @@ pub trait ConnectionEventAddress {
     fn address(&self) -> SockAddr;
 }
 
+/// Represents a moment in time
+pub trait MomentInTime: Clone + Copy + Send + Sync {
+    /// Returns a time in milliseconds.
+    fn duration_since(&self, other: Self) -> Duration;
+
+    /// Returns the current time in milliseconds.
+    fn now() -> Self;
+}
+
 /// Allows to implement actual connection.
 /// Defines a type of `Send` and `Receive` events, that will be used by a connection.
 pub trait Connection: Debug {
@@ -33,6 +41,8 @@ pub trait Connection: Debug {
     type SendEvent: Debug + ConnectionEventAddress;
     /// Defines a connection event type.
     type ReceiveEvent: Debug + ConnectionEventAddress;
+    /// Defines a momment in time,
+    type Instant: MomentInTime;
 
     /// Creates new connection and initialize it by sending an connection event to the user.
     /// * messenger - allows to send packets and events, also provides a config.
@@ -41,7 +51,7 @@ pub trait Connection: Debug {
     fn create_connection(
         messenger: &impl ConnectionMessenger<Self::ReceiveEvent>,
         address: SockAddr,
-        time: Instant,
+        time: Self::Instant,
     ) -> Self;
 
     /// Connections are considered established once they have both had both a send and a receive.
@@ -51,7 +61,7 @@ pub trait Connection: Debug {
     fn should_drop(
         &mut self,
         messenger: &impl ConnectionMessenger<Self::ReceiveEvent>,
-        time: Instant,
+        time: Self::Instant,
     ) -> bool;
 
     /// Processes a received packet: parse it and emit an event.
@@ -59,7 +69,7 @@ pub trait Connection: Debug {
         &mut self,
         messenger: &mut impl ConnectionMessenger<Self::ReceiveEvent>,
         payload: &[u8],
-        time: Instant,
+        time: Self::Instant,
     );
 
     /// Processes a received event and send a packet.
@@ -67,7 +77,7 @@ pub trait Connection: Debug {
         &mut self,
         messenger: &impl ConnectionMessenger<Self::ReceiveEvent>,
         event: Self::SendEvent,
-        time: Instant,
+        time: Self::Instant,
     );
 
     /// Processes various connection-related tasks: resend dropped packets, send heartbeat packet, etc...
@@ -75,6 +85,6 @@ pub trait Connection: Debug {
     fn update(
         &mut self,
         messenger: &impl ConnectionMessenger<Self::ReceiveEvent>,
-        time: Instant,
+        time: Self::Instant,
     );
 }

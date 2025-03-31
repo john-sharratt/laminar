@@ -1,5 +1,3 @@
-use coarsetime::Instant;
-
 use crate::{
     net::{NetworkQuality, RttMeasurer},
     sequence_buffer::{CongestionData, SequenceBuffer},
@@ -7,13 +5,13 @@ use crate::{
 };
 
 /// Keeps track of congestion information.
-pub struct CongestionHandler {
+pub struct CongestionHandler<T: MomentInTime>{
     rtt_measurer: RttMeasurer,
     congestion_data: SequenceBuffer<CongestionData>,
     _quality: NetworkQuality,
 }
 
-impl CongestionHandler {
+impl<T: MomentInTime> CongestionHandler<T> {
     /// Constructs a new `CongestionHandler` which you can use for keeping track of congestion information.
     pub fn new(config: &Config) -> CongestionHandler {
         CongestionHandler {
@@ -35,7 +33,7 @@ impl CongestionHandler {
     ///
     /// This will insert an entry which is used for keeping track of the sending time.
     /// Once we process incoming sequence numbers we can calculate the `RTT` time.
-    pub fn process_outgoing(&mut self, seq: SequenceNumber, time: Instant) {
+    pub fn process_outgoing(&mut self, seq: SequenceNumber, time: T) {
         self.congestion_data
             .insert(seq, CongestionData::new(seq, time));
     }
@@ -43,14 +41,12 @@ impl CongestionHandler {
 
 #[cfg(test)]
 mod test {
-    use coarsetime::Instant;
-
     use crate::infrastructure::CongestionHandler;
     use crate::Config;
 
     #[test]
     fn congestion_entry_created() {
-        let mut congestion_handler = CongestionHandler::new(&Config::default());
+        let mut congestion_handler = CongestionHandler::<coarsetime::Instant>::new(&Config::default());
 
         congestion_handler.process_outgoing(1, Instant::now());
 
@@ -60,7 +56,7 @@ mod test {
     #[test]
     #[allow(clippy::float_cmp)]
     fn rtt_value_is_updated() {
-        let mut congestion_handler = CongestionHandler::new(&Config::default());
+        let mut congestion_handler = CongestionHandler::<coarsetime::Instant>::new(&Config::default());
 
         assert!(congestion_handler.rtt_measurer.get_rtt().abs() < f32::EPSILON);
         congestion_handler.process_outgoing(1, Instant::now());
