@@ -228,33 +228,41 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
         let packet_loss = DEBUG_PACKET_LOSS.load(Ordering::Relaxed);
         let packet_delay = DEBUG_PACKET_DELAY.load(Ordering::Relaxed);
 
+        // Determine how long we should block for
+        let mut loop_duration = Duration::from_millis(10);
+        if packet_delay > 0 {
+            let packet_delay =
+                Duration::from_millis(DEBUG_PACKET_DELAY.load(Ordering::Relaxed));
+            loop_duration = self
+                .delayed_packets
+                .first()
+                .map(|p| {
+                    let elapsed = now.duration_since(p.0);
+                    if elapsed >= packet_delay {
+                        Duration::from_millis(1)
+                    } else {
+                        packet_delay - elapsed
+                    }
+                })
+                .unwrap_or(loop_duration);
+        }
+
         // first we pull all newly arrived packets and handle them
-        loop {
-            // determine how long we should block for
-            let mut read_timeout = None;
-            if packet_delay > 0 {
-                let packet_delay =
-                    Duration::from_millis(DEBUG_PACKET_DELAY.load(Ordering::Relaxed));
-                read_timeout = self
-                    .delayed_packets
-                    .first()
-                    .map(|p| {
-                        let elapsed = now.duration_since(p.0);
-                        if elapsed >= packet_delay {
-                            Duration::from_millis(1)
-                        } else {
-                            packet_delay - elapsed
-                        }
-                    })
-                    .or(Some(Duration::from_millis(50)));
-            }
+        let started = now;
+        let mut n_packets = 0;
+        while TConnection::Instant::now().duration_since(started) < loop_duration {
+            // Update the read timeout to match
+            let read_timeout = loop_duration.saturating_sub(TConnection::Instant::now().duration_since(started));
+            let read_timeout = Some(read_timeout);
             if self.cur_read_timeout != read_timeout {
                 self.cur_read_timeout = read_timeout;
                 self.rx.set_read_timeout(read_timeout).ok();
             }
 
             // now execute the receive packet operation with the right delay
-            match self.rx.receive_packet(self.receive_buffer.as_mut()) {
+            let rcv = self.rx.receive_packet(self.receive_buffer.as_mut());
+            n_packets += 1;
+            match rcv {
                 Ok((payload, address)) => {
                     if packet_loss > 0 {
                         let packet_loss = packet_loss as f32 / 100_000.0;
@@ -295,6 +303,12 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
             }
             // prevent from blocking, break after receiving first packet
             if self.rx.is_blocking_mode() {
+                break;
+            }
+
+            // If we have done a decent number of packets then stop the loop
+            // so the delayed packets can also be processed
+            if n_packets > 200 {
                 break;
             }
         }

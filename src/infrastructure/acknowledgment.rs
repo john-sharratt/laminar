@@ -209,12 +209,12 @@ mod test {
 
     use crate::infrastructure::acknowledgment::ReceivedPacket;
     use crate::infrastructure::{AcknowledgmentHandler, SentPacket};
-    use crate::net::constants::DEFAULT_RESEND_AFTER;
+    use crate::net::constants::{DEFAULT_FAST_RESEND_AFTER, DEFAULT_RESEND_AFTER};
     use crate::packet::{OrderingGuarantee, PacketType, SequenceNumber};
 
     #[test]
     fn increment_local_seq_num_on_process_outgoing() {
-        let mut handler = AcknowledgmentHandler::new(DEFAULT_RESEND_AFTER);
+        let mut handler = AcknowledgmentHandler::new(DEFAULT_RESEND_AFTER, DEFAULT_FAST_RESEND_AFTER);
         assert_eq!(handler.local_sequence_num(), 0);
         for i in 0..10 {
             handler.process_outgoing(
@@ -233,7 +233,7 @@ mod test {
 
     #[test]
     fn local_seq_num_wraps_on_overflow() {
-        let mut handler = AcknowledgmentHandler::new(DEFAULT_RESEND_AFTER);
+        let mut handler = AcknowledgmentHandler::new(DEFAULT_RESEND_AFTER, DEFAULT_FAST_RESEND_AFTER);
         handler.sequence_number = SequenceNumber::max_value();
         handler.process_outgoing(
             PacketType::Packet,
@@ -250,13 +250,13 @@ mod test {
 
     #[test]
     fn ack_bitfield_with_empty_receive() {
-        let handler = AcknowledgmentHandler::<coarsetime::Instant>::new(DEFAULT_RESEND_AFTER);
+        let handler = AcknowledgmentHandler::<coarsetime::Instant>::new(DEFAULT_RESEND_AFTER, DEFAULT_FAST_RESEND_AFTER);
         assert_eq!(handler.ack_bitfield(), 0)
     }
 
     #[test]
     fn ack_bitfield_with_some_values() {
-        let mut handler = AcknowledgmentHandler::<coarsetime::Instant>::new(DEFAULT_RESEND_AFTER);
+        let mut handler = AcknowledgmentHandler::<coarsetime::Instant>::new(DEFAULT_RESEND_AFTER, DEFAULT_FAST_RESEND_AFTER);
         handler
             .received_packets
             .insert(0, ReceivedPacket::default());
@@ -273,7 +273,7 @@ mod test {
     #[test]
     fn packet_is_not_acked() {
         let now = coarsetime::Instant::now();
-        let mut handler = AcknowledgmentHandler::new(DEFAULT_RESEND_AFTER);
+        let mut handler = AcknowledgmentHandler::new(DEFAULT_RESEND_AFTER, DEFAULT_FAST_RESEND_AFTER);
 
         handler.sequence_number = 0;
         handler.process_outgoing(
@@ -318,8 +318,8 @@ mod test {
 
     #[test]
     fn acking_500_packets_without_packet_drop() {
-        let mut handler = AcknowledgmentHandler::new(DEFAULT_RESEND_AFTER);
-        let mut other = AcknowledgmentHandler::<coarsetime::Instant>::new(DEFAULT_RESEND_AFTER);
+        let mut handler = AcknowledgmentHandler::new(DEFAULT_RESEND_AFTER, DEFAULT_FAST_RESEND_AFTER);
+        let mut other = AcknowledgmentHandler::<coarsetime::Instant>::new(DEFAULT_RESEND_AFTER, DEFAULT_FAST_RESEND_AFTER);
 
         for i in 0..500 {
             handler.sequence_number = i;
@@ -343,8 +343,8 @@ mod test {
 
     #[test]
     fn acking_many_packets_with_packet_drop() {
-        let mut handler = AcknowledgmentHandler::new(DEFAULT_RESEND_AFTER);
-        let mut other = AcknowledgmentHandler::<coarsetime::Instant>::new(DEFAULT_RESEND_AFTER);
+        let mut handler = AcknowledgmentHandler::new(DEFAULT_RESEND_AFTER, DEFAULT_FAST_RESEND_AFTER);
+        let mut other = AcknowledgmentHandler::<coarsetime::Instant>::new(DEFAULT_RESEND_AFTER, DEFAULT_FAST_RESEND_AFTER);
 
         let mut drop_count = 0;
 
@@ -390,7 +390,7 @@ mod test {
 
     #[test]
     fn remote_seq_num_will_be_updated() {
-        let mut handler = AcknowledgmentHandler::<coarsetime::Instant>::new(DEFAULT_RESEND_AFTER);
+        let mut handler = AcknowledgmentHandler::<coarsetime::Instant>::new(DEFAULT_RESEND_AFTER, DEFAULT_FAST_RESEND_AFTER);
         assert_eq!(handler.remote_sequence_num(), SequenceNumber::MAX);
         handler.process_incoming(0, 0, 0);
         assert_eq!(handler.remote_sequence_num(), 0);
@@ -400,7 +400,7 @@ mod test {
 
     #[test]
     fn processing_a_full_set_of_packets() {
-        let mut handler = AcknowledgmentHandler::<coarsetime::Instant>::new(DEFAULT_RESEND_AFTER);
+        let mut handler = AcknowledgmentHandler::<coarsetime::Instant>::new(DEFAULT_RESEND_AFTER, DEFAULT_FAST_RESEND_AFTER);
         for i in 0..33 {
             handler.process_incoming(i, 0, 0);
         }
@@ -410,7 +410,7 @@ mod test {
 
     #[test]
     fn test_process_outgoing() {
-        let mut handler = AcknowledgmentHandler::<coarsetime::Instant>::new(DEFAULT_RESEND_AFTER);
+        let mut handler = AcknowledgmentHandler::<coarsetime::Instant>::new(DEFAULT_RESEND_AFTER, DEFAULT_FAST_RESEND_AFTER);
         handler.process_outgoing(
             PacketType::Packet,
             vec![1, 2, 3].as_slice(),
@@ -427,7 +427,7 @@ mod test {
 
     #[test]
     fn remote_ack_seq_must_never_be_less_than_prior() {
-        let mut handler = AcknowledgmentHandler::<coarsetime::Instant>::new(DEFAULT_RESEND_AFTER);
+        let mut handler = AcknowledgmentHandler::<coarsetime::Instant>::new(DEFAULT_RESEND_AFTER, DEFAULT_FAST_RESEND_AFTER);
         // Second packet received before first
         handler.process_incoming(1, 1, 1);
         assert_eq!(handler.remote_ack_sequence_num, 1);
@@ -438,7 +438,7 @@ mod test {
 
     #[test]
     fn remote_ack_seq_must_never_be_less_than_prior_wrap_boundary() {
-        let mut handler = AcknowledgmentHandler::<coarsetime::Instant>::new(DEFAULT_RESEND_AFTER);
+        let mut handler = AcknowledgmentHandler::<coarsetime::Instant>::new(DEFAULT_RESEND_AFTER, DEFAULT_FAST_RESEND_AFTER);
         // newer packet received before first
         handler.process_incoming(1, 0, 1);
         assert_eq!(handler.remote_ack_sequence_num, 0);
