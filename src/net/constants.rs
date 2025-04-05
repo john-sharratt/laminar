@@ -1,9 +1,13 @@
+use std::time::Duration;
+
 use crate::packet::{AckFieldNumber, FragmentNumber, SequenceNumber, StreamNumber};
 
 /// The size of the fragment header.
-pub const FRAGMENT_HEADER_SIZE: usize = size_of::<SequenceNumber>() + size_of::<FragmentNumber>() * 2;
+pub const FRAGMENT_HEADER_SIZE: usize =
+    size_of::<SequenceNumber>() + size_of::<FragmentNumber>() * 2;
 /// The size of the acknowledgment header.
-pub const ACKED_PACKET_HEADER: usize = size_of::<SequenceNumber>() * 2 + size_of::<AckFieldNumber>();
+pub const ACKED_PACKET_HEADER: usize =
+    size_of::<SequenceNumber>() * 2 + size_of::<AckFieldNumber>();
 /// The size of the arranging header.
 pub const ARRANGING_PACKET_HEADER: usize = size_of::<SequenceNumber>() + size_of::<StreamNumber>();
 /// The size of the standard header.
@@ -16,6 +20,10 @@ pub const DEFAULT_SEQUENCING_STREAM: StreamNumber = StreamNumber::MAX;
 pub const MAX_FRAGMENTS_DEFAULT: FragmentNumber = 16;
 /// Default maximal size of each fragment.
 pub const FRAGMENT_SIZE_DEFAULT: usize = 1024;
+/// Defaultamount of time to resend a packet if no acknowledgment has been received.
+pub const DEFAULT_RESEND_AFTER: Duration = Duration::from_millis(500);
+/// Defaultamount of time to resend a packet if no acknowledgment has been received.
+pub const DEFAULT_FAST_RESEND_AFTER: Duration = Duration::from_millis(100);
 /// Maximum transmission unit of the payload.
 ///
 /// Derived from ethernet_mtu - ipv6_header_size - udp_header_size - packet header size

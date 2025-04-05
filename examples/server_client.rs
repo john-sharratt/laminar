@@ -30,7 +30,7 @@ fn server() -> Result<(), ErrorKind> {
                     println!("Received {:?} from {:?}", msg, packet.addr());
 
                     sender
-                        .send(Packet::reliable_unordered(
+                        .send_and_poll(Packet::reliable_unordered(
                             packet.addr().clone(),
                             "Copy that!".as_bytes().to_vec(),
                             "user packet"

@@ -26,7 +26,7 @@ pub trait ConnectionEventAddress {
 }
 
 /// Represents a moment in time
-pub trait MomentInTime: Clone + Copy + Send + Sync {
+pub trait MomentInTime: Clone + Copy + PartialOrd + PartialEq + Send + Sync {
     /// Returns a time in milliseconds.
     fn duration_since(&self, other: Self) -> Duration;
 

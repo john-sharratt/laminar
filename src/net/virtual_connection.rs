@@ -37,7 +37,7 @@ pub struct VirtualConnection<T: MomentInTime> {
 
     ordering_system: OrderingSystem<(Box<[u8]>, PacketType)>,
     sequencing_system: SequencingSystem<Box<[u8]>>,
-    acknowledge_handler: AcknowledgmentHandler,
+    acknowledge_handler: AcknowledgmentHandler<T>,
 
     config: Config,
     fragmentation: Fragmentation,
@@ -54,7 +54,10 @@ impl<T: MomentInTime> VirtualConnection<T> {
             ever_recv: false,
             ordering_system: OrderingSystem::new(),
             sequencing_system: SequencingSystem::new(),
-            acknowledge_handler: AcknowledgmentHandler::new(),
+            acknowledge_handler: AcknowledgmentHandler::new(
+                config.resend_after,
+                config.fast_resend_after,
+            ),
             fragmentation: Fragmentation::new(config),
             config: config.to_owned(),
         }
@@ -113,6 +116,7 @@ impl<T: MomentInTime> VirtualConnection<T> {
         packet: PacketInfo<'a>,
         last_item_identifier: Option<SequenceNumber>,
         time: T,
+        sent: T,
     ) -> Result<OutgoingPackets<'a>> {
         self.last_sent = time;
         match packet.delivery {
@@ -253,6 +257,10 @@ impl<T: MomentInTime> VirtualConnection<T> {
                     packet.payload,
                     packet.ordering,
                     item_identifier_value,
+                    sent,
+                    time,
+                    packet.expires_after,
+                    packet.latest_identifier,
                 );
 
                 Ok(outgoing)
@@ -297,6 +305,8 @@ impl<T: MomentInTime> VirtualConnection<T> {
                                 packet,
                                 header.delivery_guarantee(),
                                 OrderingGuarantee::Sequenced(Some(arranging_header.stream_id())),
+                                None,
+                                None,
                                 "received packet",
                             ),
                             header.packet_type(),
@@ -312,6 +322,8 @@ impl<T: MomentInTime> VirtualConnection<T> {
                         packet_reader.read_payload(),
                         header.delivery_guarantee(),
                         header.ordering_guarantee(),
+                        None,
+                        None,
                         "received packet",
                     ),
                     header.packet_type(),
@@ -344,6 +356,8 @@ impl<T: MomentInTime> VirtualConnection<T> {
                                         payload.into_boxed_slice(),
                                         header.delivery_guarantee(),
                                         header.ordering_guarantee(),
+                                        None,
+                                        None,
                                         "received packet",
                                     ),
                                     PacketType::Packet, // change from Fragment to Packet type, it only matters when assembling/dissasembling packet header.
@@ -387,6 +401,8 @@ impl<T: MomentInTime> VirtualConnection<T> {
                                     OrderingGuarantee::Sequenced(Some(
                                         arranging_header.stream_id(),
                                     )),
+                                    None,
+                                    None,
                                     "received packet",
                                 ),
                                 header.packet_type(),
@@ -419,6 +435,8 @@ impl<T: MomentInTime> VirtualConnection<T> {
                                             OrderingGuarantee::Ordered(Some(
                                                 arranging_header.stream_id(),
                                             )),
+                                            None,
+                                            None,
                                             "received packet",
                                         ),
                                         packet_type,
@@ -434,6 +452,8 @@ impl<T: MomentInTime> VirtualConnection<T> {
                                 payload,
                                 header.delivery_guarantee(),
                                 header.ordering_guarantee(),
+                                None,
+                                None,
                                 "received packet",
                             ),
                             header.packet_type(),
@@ -448,8 +468,11 @@ impl<T: MomentInTime> VirtualConnection<T> {
     /// Gathers dropped packets from the acknowledgment handler.
     ///
     /// Note that after requesting dropped packets the dropped packets will be removed from this client.
-    pub fn gather_dropped_packets(&mut self) -> Vec<SentPacket> {
-        self.acknowledge_handler.dropped_packets()
+    pub fn gather_dropped_packets(&mut self, now: T) -> Vec<SentPacket<T>> {
+        // First we gather the packets that we suspect are dropped due
+        // to the acknowledgment number being higher than the packet
+        // which means its either delivered out of order or it was dropped
+        self.acknowledge_handler.dropped_packets(now)
     }
 }
 
@@ -490,6 +513,7 @@ mod tests {
             .process_outgoing(
                 PacketInfo::heartbeat_packet(&[]),
                 None,
+                curr_sent + coarsetime::Duration::from_secs(1),
                 curr_sent + coarsetime::Duration::from_secs(1),
             )
             .unwrap()
@@ -633,8 +657,11 @@ mod tests {
                     &buffer,
                     DeliveryGuarantee::Reliable,
                     OrderingGuarantee::Ordered(None),
+                    None,
+                    None,
                 ),
                 None,
+                Instant::now(),
                 Instant::now(),
             )
             .unwrap()
@@ -655,8 +682,11 @@ mod tests {
                     &buffer,
                     DeliveryGuarantee::Unreliable,
                     OrderingGuarantee::None,
+                    None,
+                    None,
                 ),
                 None,
+                Instant::now(),
                 Instant::now(),
             )
             .unwrap();
@@ -667,8 +697,11 @@ mod tests {
                     &buffer,
                     DeliveryGuarantee::Unreliable,
                     OrderingGuarantee::Sequenced(None),
+                    None,
+                    None,
                 ),
                 None,
+                Instant::now(),
                 Instant::now(),
             )
             .unwrap();
@@ -679,8 +712,11 @@ mod tests {
                     &buffer,
                     DeliveryGuarantee::Reliable,
                     OrderingGuarantee::Ordered(None),
+                    None,
+                    None,
                 ),
                 None,
+                Instant::now(),
                 Instant::now(),
             )
             .unwrap();
@@ -691,8 +727,11 @@ mod tests {
                     &buffer,
                     DeliveryGuarantee::Reliable,
                     OrderingGuarantee::Sequenced(None),
+                    None,
+                    None,
                 ),
                 None,
+                Instant::now(),
                 Instant::now(),
             )
             .unwrap();
@@ -1020,8 +1059,9 @@ mod tests {
 
         let outgoing = connection
             .process_outgoing(
-                PacketInfo::user_packet(&buffer, delivery, ordering),
+                PacketInfo::user_packet(&buffer, delivery, ordering, None, None),
                 None,
+                Instant::now(),
                 Instant::now(),
             )
             .unwrap();
@@ -1045,8 +1085,11 @@ mod tests {
                 &buffer,
                 DeliveryGuarantee::Unreliable,
                 OrderingGuarantee::None,
+                None,
+                None,
             ),
             None,
+            Instant::now(),
             Instant::now(),
         );
 
@@ -1064,8 +1107,11 @@ mod tests {
                     &buffer,
                     DeliveryGuarantee::Unreliable,
                     OrderingGuarantee::None,
+                    None,
+                    None,
                 ),
                 None,
+                Instant::now(),
                 Instant::now(),
             )
             .unwrap()
@@ -1093,8 +1139,11 @@ mod tests {
                     &buffer,
                     DeliveryGuarantee::Reliable,
                     OrderingGuarantee::None,
+                    None,
+                    None,
                 ),
                 None,
+                Instant::now(),
                 Instant::now(),
             )
             .unwrap()
@@ -1122,8 +1171,11 @@ mod tests {
                         &data_to_send,
                         DeliveryGuarantee::Reliable,
                         OrderingGuarantee::None,
+                        None,
+                        None,
                     ),
                     None,
+                    time,
                     time,
                 )
                 .unwrap()

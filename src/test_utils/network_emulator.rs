@@ -135,4 +135,8 @@ impl DatagramSocketReceiver for EmulatedSocket {
     fn is_blocking_mode(&self) -> bool {
         false
     }
+
+    fn set_read_timeout(&mut self, _timeout: Option<std::time::Duration>) -> Result<()> {
+        Ok(())
+    }
 }

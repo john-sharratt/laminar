@@ -5,7 +5,11 @@ use std::{
     io::{IoSlice, Result},
     mem::MaybeUninit,
     ops::{Deref, DerefMut},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex,
+    },
+    time::Duration,
 };
 
 use crossbeam_channel::{self, unbounded, Receiver, Sender};
@@ -17,6 +21,9 @@ use crate::{
     config::Config,
     net::{Connection, ConnectionEventAddress, ConnectionMessenger},
 };
+
+static DEBUG_PACKET_DELAY: AtomicU64 = AtomicU64::new(0);
+static DEBUG_PACKET_LOSS: AtomicU64 = AtomicU64::new(0);
 
 // TODO: maybe we can make a breaking change and use this instead of `ConnectionEventAddress` trait?
 // #[derive(Debug)]
@@ -62,6 +69,9 @@ pub trait DatagramSocketReceiver: Debug {
 
     /// Returns whether socket operates in blocking or non-blocking mode.
     fn is_blocking_mode(&self) -> bool;
+
+    /// Sets how long we should block polling for socket events.
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> Result<()>;
 }
 
 // This will be used by a `Connection`.
@@ -122,6 +132,27 @@ impl<ReceiveEvent: Debug> ConnectionMessenger<ReceiveEvent>
     }
 }
 
+/// Sets a packet delay that is used for debugging purposes to test the networking code
+pub fn debug_set_packet_delay(packet_delay: Duration) {
+    DEBUG_PACKET_DELAY.store(packet_delay.as_millis() as u64, Ordering::Relaxed);
+}
+
+/// Gets the current set packet delay value.
+pub fn debug_get_packet_delay() -> Duration {
+    Duration::from_millis(DEBUG_PACKET_DELAY.load(Ordering::Relaxed))
+}
+
+/// Sets a packet loss that is used for debugging purposes to test the networking code
+/// Value of `packet_loss` should be between 0.0 and 1.0, where 0.0 means no packet loss and 1.0 means all packets are lost.
+pub fn debug_set_packet_loss(packet_loss: f32) {
+    DEBUG_PACKET_LOSS.store((packet_loss * 100_000.0) as u64, Ordering::Relaxed);
+}
+
+/// Gets the current set packet loss value.
+pub fn debug_get_packet_loss() -> f32 {
+    DEBUG_PACKET_LOSS.load(Ordering::Relaxed) as f32 / 100_000.0
+}
+
 /// Implements a concept of connections on top of datagram socket.
 /// Connection capabilities depends on what is an actual `Connection` type.
 /// Connection type also defines a type of sending and receiving events.
@@ -130,7 +161,9 @@ pub struct ConnectionManager<TConnection: Connection> {
     connections: Arc<Mutex<HashMap<SockAddr, TConnection>>>,
     receive_buffer: Vec<MaybeUninit<u8>>,
     event_receiver: Receiver<TConnection::ReceiveEvent>,
+    delayed_packets: Vec<(TConnection::Instant, SockAddr, Vec<u8>)>,
     max_unestablished_connections: usize,
+    cur_read_timeout: Option<Duration>,
     rx: Box<dyn DatagramSocketReceiver + Send + Sync>,
     tx: ConnectionSender<TConnection>,
 }
@@ -150,6 +183,8 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
             rx,
             event_receiver: event_receiver.clone(),
             max_unestablished_connections,
+            delayed_packets: Vec::new(),
+            cur_read_timeout: None,
             tx: ConnectionSender {
                 connections,
                 tx: SocketEventSenderAndConfig::new(config.clone(), tx, event_sender),
@@ -164,33 +199,83 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
     }
 
     /// Processes any inbound packets and events.
-    pub fn manual_poll_inbound(&mut self, time: TConnection::Instant) -> std::io::Result<()> {
+    pub fn manual_poll_inbound(&mut self, now: TConnection::Instant) -> std::io::Result<()> {
         let mut unestablished_connections = self.unestablished_connection_count();
         let messenger = &mut self.tx.tx;
 
+        // function used to process packets
+        let mut process_packet = |payload: &[u8], address: SockAddr| {
+            let mut connections = self.connections.lock().unwrap();
+            if let Some(conn) = connections.get_mut(&address) {
+                let was_est = conn.is_established();
+                conn.process_packet(messenger, payload, now);
+                if !was_est && conn.is_established() {
+                    unestablished_connections = unestablished_connections.saturating_sub(1);
+                }
+            } else {
+                let mut conn = TConnection::create_connection(messenger, address.clone(), now);
+                conn.process_packet(messenger, payload, now);
+
+                // We only allow a maximum amount number of unestablished connections to bet created
+                // from inbound packets to prevent packet flooding from allocating unbounded memory.
+                if unestablished_connections < self.max_unestablished_connections as usize {
+                    connections.insert(address, conn);
+                    unestablished_connections += 1;
+                }
+            }
+        };
+
+        let packet_loss = DEBUG_PACKET_LOSS.load(Ordering::Relaxed);
+        let packet_delay = DEBUG_PACKET_DELAY.load(Ordering::Relaxed);
+
         // first we pull all newly arrived packets and handle them
         loop {
+            // determine how long we should block for
+            let mut read_timeout = None;
+            if packet_delay > 0 {
+                let packet_delay =
+                    Duration::from_millis(DEBUG_PACKET_DELAY.load(Ordering::Relaxed));
+                read_timeout = self
+                    .delayed_packets
+                    .first()
+                    .map(|p| {
+                        let elapsed = now.duration_since(p.0);
+                        if elapsed >= packet_delay {
+                            Duration::from_millis(1)
+                        } else {
+                            packet_delay - elapsed
+                        }
+                    })
+                    .or(Some(Duration::from_millis(50)));
+            }
+            if self.cur_read_timeout != read_timeout {
+                self.cur_read_timeout = read_timeout;
+                self.rx.set_read_timeout(read_timeout).ok();
+            }
+
+            // now execute the receive packet operation with the right delay
             match self.rx.receive_packet(self.receive_buffer.as_mut()) {
                 Ok((payload, address)) => {
-                    let mut connections = self.connections.lock().unwrap();
-                    if let Some(conn) = connections.get_mut(&address) {
-                        let was_est = conn.is_established();
-                        conn.process_packet(messenger, payload, time);
-                        if !was_est && conn.is_established() {
-                            unestablished_connections = unestablished_connections.saturating_sub(1);
-                        }
-                    } else {
-                        let mut conn =
-                            TConnection::create_connection(messenger, address.clone(), time);
-                        conn.process_packet(messenger, payload, time);
-
-                        // We only allow a maximum amount number of unestablished connections to bet created
-                        // from inbound packets to prevent packet flooding from allocating unbounded memory.
-                        if unestablished_connections < self.max_unestablished_connections as usize {
-                            connections.insert(address, conn);
-                            unestablished_connections += 1;
+                    if packet_loss > 0 {
+                        let packet_loss = packet_loss as f32 / 100_000.0;
+                        if rand::random::<f32>() < packet_loss {
+                            continue;
                         }
                     }
+
+                    if packet_delay > 0 {
+                        self.delayed_packets
+                            .push((now, address.clone(), payload.to_vec()));
+                        continue;
+                    }
+
+                    process_packet(payload, address);
+                }
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::TimedOut
+                        || e.kind() == std::io::ErrorKind::WouldBlock =>
+                {
+                    break;
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => {
                     // this is triggered whenever a packet is sent using the same socket
@@ -204,9 +289,7 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
                     return Err(e);
                 }
                 Err(e) => {
-                    if e.kind() != std::io::ErrorKind::WouldBlock {
-                        error!("Encountered an error receiving data: {:?}", e);
-                    }
+                    error!("Encountered an error receiving data: {:?}", e);
                     break;
                 }
             }
@@ -215,6 +298,22 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
                 break;
             }
         }
+
+        // process any delayed packets
+        if !self.delayed_packets.is_empty() {
+            let packet_delay = Duration::from_millis(DEBUG_PACKET_DELAY.load(Ordering::Relaxed));
+            for (when, address, payload) in self.delayed_packets.iter() {
+                let elapsed = now.duration_since(*when);
+                if elapsed >= packet_delay {
+                    process_packet(payload, address.clone());
+                }
+            }
+            self.delayed_packets.retain(|(when, _, _)| {
+                let elapsed = now.duration_since(*when);
+                elapsed < packet_delay
+            });
+        }
+
         Ok(())
     }
 
@@ -264,6 +363,11 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
             .iter()
             .filter(|c| !c.1.is_established())
             .count()
+    }
+
+    /// Returns the number of packets currently in flight.
+    pub fn packets_in_flight(&self) -> usize {
+        self.delayed_packets.len()
     }
 
     /// Returns socket mutable reference.

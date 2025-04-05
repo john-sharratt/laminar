@@ -151,8 +151,11 @@ impl<T: MomentInTime> Connection for VirtualConnection<T> {
                     event.payload(),
                     event.delivery_guarantee(),
                     event.order_guarantee(),
+                    event.expires_after(),
+                    event.latest_identifier(),
                 ),
                 None,
+                time,
                 time,
             ),
             event.context(),
@@ -167,7 +170,7 @@ impl<T: MomentInTime> Connection for VirtualConnection<T> {
         time: Self::Instant,
     ) {
         // resend dropped packets
-        for dropped in self.gather_dropped_packets() {
+        for dropped in self.gather_dropped_packets(time) {
             let packets = self.process_outgoing(
                 PacketInfo {
                     packet_type: dropped.packet_type,
@@ -176,9 +179,12 @@ impl<T: MomentInTime> Connection for VirtualConnection<T> {
                     delivery: DeliveryGuarantee::Reliable,
                     // this is stored with the dropped packet because they could be mixed
                     ordering: dropped.ordering_guarantee,
+                    expires_after: dropped.expires_after,
+                    latest_identifier: dropped.latest_identifier,
                 },
                 dropped.item_identifier,
                 time,
+                dropped.sent,
             );
             send_packets(messenger, &self.remote_address, packets, "dropped packets");
         }
@@ -191,7 +197,7 @@ impl<T: MomentInTime> Connection for VirtualConnection<T> {
                     send_packets(
                         messenger,
                         &addr,
-                        self.process_outgoing(PacketInfo::heartbeat_packet(&[]), None, time),
+                        self.process_outgoing(PacketInfo::heartbeat_packet(&[]), None, time, time),
                         "heatbeat packet",
                     );
                 }
@@ -211,7 +217,12 @@ fn send_packets(
         Ok(packets) => {
             for outgoing in packets {
                 if let Err(err) = ctx.send_packet(address, &outgoing.contents()) {
-                    error!("Error occured sending {} (len={}): {:?}", err_context, outgoing.contents().len(), err);
+                    error!(
+                        "Error occured sending {} (len={}): {:?}",
+                        err_context,
+                        outgoing.contents().len(),
+                        err
+                    );
                 }
             }
         }

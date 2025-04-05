@@ -127,6 +127,10 @@ impl DatagramSocketReceiver for SocketWithConditioner {
     fn is_blocking_mode(&self) -> bool {
         self.rx.is_blocking_mode
     }
+
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.rx.socket_rx.set_read_timeout(timeout)
+    }
 }
 
 /// Provides a `DatagramSocket` implementation for `SocketWithConditioner`
@@ -191,6 +195,11 @@ impl DatagramSocketReceiver for SocketWithConditionerRx {
     fn is_blocking_mode(&self) -> bool {
         self.is_blocking_mode
     }
+
+    /// Sets the read timeout for the socket.
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        self.socket_rx.set_read_timeout(timeout)
+    }
 }
 
 impl DatagramSocketSender for Box<dyn DatagramSocketSender> {
@@ -225,6 +234,10 @@ impl DatagramSocketReceiver for Box<dyn DatagramSocketReceiver> {
 
     fn is_blocking_mode(&self) -> bool {
         (**self).is_blocking_mode()
+    }
+
+    fn set_read_timeout(&mut self, timeout: Option<Duration>) -> std::io::Result<()> {
+        (**self).set_read_timeout(timeout)
     }
 }
 
@@ -388,6 +401,17 @@ impl<T: MomentInTime> SocketTx<T> {
         self.handler.send_and_poll(packet)?;
         Ok(())
     }
+
+    /// Sends a single packet
+    pub fn send_only(&mut self, packet: Packet) -> Result<()> {
+        self.handler.send_only(packet)?;
+        Ok(())
+    }
+
+    /// Poll the update
+    pub fn manual_poll_update(&mut self, now: T) {
+        self.handler.manual_poll_update(now);
+    }
 }
 
 /// A reliable UDP socket implementation with configurable reliability and ordering guarantees.
@@ -402,6 +426,11 @@ impl<T: MomentInTime> SocketRx<T> {
     /// a separate thread.
     pub fn get_event_receiver(&self) -> Receiver<SocketEvent> {
         self.handler.event_receiver().clone()
+    }
+
+    /// Returns the number of packets in flight
+    pub fn packets_in_flight(&self) -> usize {
+        self.handler.packets_in_flight()
     }
 
     /// Receives a single packet
@@ -440,6 +469,17 @@ impl<T: MomentInTime> SocketRx<T> {
     pub fn manual_poll(&mut self, time: T) -> std::io::Result<()> {
         self.handler.manual_poll(time)?;
         Ok(())
+    }
+
+    /// Processes any inbound packets
+    pub fn manual_poll_inbound(&mut self, time: T) -> std::io::Result<()> {
+        self.handler.manual_poll_inbound(time)?;
+        Ok(())
+    }
+
+    /// Processees any events for idle clients
+    pub fn manual_poll_update(&mut self, time: T) {
+        self.handler.manual_poll_update(time);
     }
 
     /// Returns the local socket address

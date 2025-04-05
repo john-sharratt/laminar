@@ -32,18 +32,18 @@
 pub use self::config::Config;
 pub use self::error::{ErrorKind, Result};
 pub use self::net::{
-    Connection, ConnectionManager, ConnectionSender, ConnectionMessenger, DatagramSocket, DatagramSocketSender,
-    DatagramSocketReceiver, LinkConditioner, Socket, SocketRx, SocketTx, MomentInTime,
-    SocketEvent, VirtualConnection,
-    constants::PROTOCOL_VERSION
+    constants::PROTOCOL_VERSION, debug_set_packet_delay, debug_set_packet_loss, debug_get_packet_delay, debug_get_packet_loss, Connection,
+    ConnectionManager, ConnectionMessenger, ConnectionSender, DatagramSocket,
+    DatagramSocketReceiver, DatagramSocketSender, LinkConditioner, MomentInTime, Socket,
+    SocketEvent, SocketRx, SocketTx, VirtualConnection,
 };
 pub use self::packet::{DeliveryGuarantee, OrderingGuarantee, Packet};
 #[cfg(feature = "tester")]
 pub use self::throughput::ThroughputMonitoring;
-pub use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 pub use coarsetime;
+pub use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
+pub use packet::{FragmentNumber, SequenceNumber, StreamNumber};
 pub use socket2;
-pub use packet::{SequenceNumber, StreamNumber, FragmentNumber};
 
 mod config;
 mod either;

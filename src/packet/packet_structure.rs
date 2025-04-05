@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use socket2::SockAddr;
 
 use crate::packet::{DeliveryGuarantee, OrderingGuarantee, PacketType};
@@ -26,6 +28,10 @@ pub struct Packet {
     delivery: DeliveryGuarantee,
     /// Defines on how the packet will be ordered.
     ordering: OrderingGuarantee,
+    /// The identifier used to determine if this is the latest packet.
+    latest_identifier: Option<u64>,
+    /// The packet will expire after this duration.
+    expiration: Option<Duration>,
     /// Context of the packet
     context: &'static str,
 }
@@ -36,7 +42,9 @@ impl Packet {
         addr: SockAddr,
         payload: Box<[u8]>,
         delivery: DeliveryGuarantee,
-        ordering: OrderingGuarantee,
+        ordering: OrderingGuarantee,        
+        latest_identifier: Option<u64>,
+        expiration: Option<Duration>,
         context: &'static str,
     ) -> Packet {
         Packet {
@@ -44,6 +52,8 @@ impl Packet {
             payload,
             delivery,
             ordering,
+            latest_identifier,
+            expiration,
             context,
         }
     }
@@ -65,6 +75,8 @@ impl Packet {
             payload: payload.into_boxed_slice(),
             delivery: DeliveryGuarantee::Unreliable,
             ordering: OrderingGuarantee::None,
+            latest_identifier: None,
+            expiration: None,
             context,
         }
     }
@@ -91,6 +103,8 @@ impl Packet {
             payload: payload.into_boxed_slice(),
             delivery: DeliveryGuarantee::Unreliable,
             ordering: OrderingGuarantee::Sequenced(stream_id),
+            latest_identifier: None,
+            expiration: None,
             context,
         }
     }
@@ -111,6 +125,77 @@ impl Packet {
             payload: payload.into_boxed_slice(),
             delivery: DeliveryGuarantee::Reliable,
             ordering: OrderingGuarantee::None,
+            latest_identifier: None,
+            expiration: None,
+            context
+        }
+    }
+
+    /// Creates a new packet by passing the receiver, data.
+    /// Reliable; All packets will be sent and received, but without order.
+    ///
+    /// *Details*
+    ///
+    /// |   Packet Drop   | Packet Duplication | Packet Order     | Packet Fragmentation | Packet Delivery |
+    /// | :-------------: | :-------------:    | :-------------:  | :-------------:      | :-------------: |
+    /// |       old        |      No            |      No          |      Yes             |       Yes       |
+    ///
+    /// The packet will be sent reliablely, but only the latest packet will be resent should
+    /// the connection become clogged up
+    pub fn reliable_latest(addr: SockAddr, payload: Vec<u8>, latest_identifier: u64, context: &'static str,) -> Packet {
+        Packet {
+            addr,
+            payload: payload.into_boxed_slice(),
+            delivery: DeliveryGuarantee::Reliable,
+            ordering: OrderingGuarantee::None,
+            latest_identifier: Some(latest_identifier),
+            expiration: None,
+            context
+        }
+    }
+
+    /// Creates a new packet by passing the receiver, data.
+    /// Reliable; All packets will be sent and received, but without order.
+    ///
+    /// *Details*
+    ///
+    /// |   Packet Drop   | Packet Duplication | Packet Order     | Packet Fragmentation | Packet Delivery |
+    /// | :-------------: | :-------------:    | :-------------:  | :-------------:      | :-------------: |
+    /// |   timeout       |      No            |      No          |      Yes             |       Yes       |
+    ///
+    /// The packet will be sent reliablely, but only the latest packet will be resent should
+    /// the connection become clogged up
+    pub fn reliable_timeout(addr: SockAddr, payload: Vec<u8>, timeout: Duration, context: &'static str,) -> Packet {
+        Packet {
+            addr,
+            payload: payload.into_boxed_slice(),
+            delivery: DeliveryGuarantee::Reliable,
+            ordering: OrderingGuarantee::None,
+            latest_identifier: None,
+            expiration: Some(timeout),
+            context
+        }
+    }
+
+    /// Creates a new packet by passing the receiver, data.
+    /// Reliable; All packets will be sent and received, but without order.
+    ///
+    /// *Details*
+    ///
+    /// |   Packet Drop   | Packet Duplication | Packet Order     | Packet Fragmentation | Packet Delivery |
+    /// | :-------------: | :-------------:    | :-------------:  | :-------------:      | :-------------: |
+    /// | old + timeout   |      No            |      No          |      Yes             |       Yes       |
+    ///
+    /// The packet will be sent reliablely, but only the latest packet will be resent should
+    /// the connection become clogged up
+    pub fn reliable_latest_timeout(addr: SockAddr, payload: Vec<u8>, latest_identifier: u64, timeout: Duration, context: &'static str,) -> Packet {
+        Packet {
+            addr,
+            payload: payload.into_boxed_slice(),
+            delivery: DeliveryGuarantee::Reliable,
+            ordering: OrderingGuarantee::None,
+            latest_identifier: Some(latest_identifier),
+            expiration: Some(timeout),
             context
         }
     }
@@ -135,6 +220,8 @@ impl Packet {
             payload: payload.into_boxed_slice(),
             delivery: DeliveryGuarantee::Reliable,
             ordering: OrderingGuarantee::Ordered(stream_id),
+            latest_identifier: None,
+            expiration: None,
             context,
         }
     }
@@ -160,6 +247,8 @@ impl Packet {
             payload: payload.into_boxed_slice(),
             delivery: DeliveryGuarantee::Reliable,
             ordering: OrderingGuarantee::Sequenced(stream_id),
+            latest_identifier: None,
+            expiration: None,
             context
         }
     }
@@ -198,6 +287,16 @@ impl Packet {
     pub fn order_guarantee(&self) -> OrderingGuarantee {
         self.ordering
     }
+
+    /// Returns if the packet will expire after a certain amount of time.
+    pub fn expires_after(&self) -> Option<Duration> {
+        self.expiration
+    }
+
+    /// Returns the latest identifier of this packet which is used to deduplicate resends
+    pub fn latest_identifier(&self) -> Option<u64> {
+        self.latest_identifier
+    }
 }
 
 /// This packet type has similar properties to `Packet` except that it doesn't own anything, and additionally has `PacketType`.
@@ -211,20 +310,42 @@ pub struct PacketInfo<'a> {
     pub(crate) delivery: DeliveryGuarantee,
     /// Defines how the packet will be ordered.
     pub(crate) ordering: OrderingGuarantee,
+    /// How long until the packet expires
+    pub(crate) expires_after: Option<Duration>,
+    /// The identifier used to determine if this is the latest packet.
+    pub(crate) latest_identifier: Option<u64>,
+    
 }
 
 impl<'a> PacketInfo<'a> {
+    /// Modifes the packet so that it will expire after a certain amount of time.
+    pub fn with_expiry(mut self, expiry: Duration) -> Self {
+        self.expires_after = Some(expiry);
+        self
+    }
+
+    /// Modifes the packet so that it will be replaced by the latest packet if one is
+    /// sent at a later time.
+    pub fn with_latest_identifier(mut self, latest_identifier: u64) -> Self {
+        self.latest_identifier = Some(latest_identifier);
+        self
+    }
+
     /// Creates a user packet that can be received by the user.
     pub fn user_packet(
         payload: &'a [u8],
         delivery: DeliveryGuarantee,
         ordering: OrderingGuarantee,
+        expires_after: Option<Duration>,
+        latest_identifier: Option<u64>,
     ) -> Self {
         PacketInfo {
             packet_type: PacketType::Packet,
             payload,
             delivery,
             ordering,
+            expires_after,
+            latest_identifier,
         }
     }
 
@@ -235,6 +356,8 @@ impl<'a> PacketInfo<'a> {
             payload,
             delivery: DeliveryGuarantee::Unreliable,
             ordering: OrderingGuarantee::None,
+            expires_after: None,
+            latest_identifier: None
         }
     }
 }

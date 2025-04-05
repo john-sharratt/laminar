@@ -1,6 +1,12 @@
 use std::{default::Default, time::Duration};
 
-use crate::{net::constants::{DEFAULT_MTU, FRAGMENT_SIZE_DEFAULT, MAX_FRAGMENTS_DEFAULT}, packet::FragmentNumber};
+use crate::{
+    net::constants::{
+        DEFAULT_FAST_RESEND_AFTER, DEFAULT_MTU, DEFAULT_RESEND_AFTER, FRAGMENT_SIZE_DEFAULT,
+        MAX_FRAGMENTS_DEFAULT,
+    },
+    packet::FragmentNumber,
+};
 
 #[derive(Clone, Debug)]
 /// Contains the configuration options to configure laminar for special use-cases.
@@ -56,6 +62,13 @@ pub struct Config {
     /// us, if that store grows to a size.
     pub max_packets_in_flight: usize,
 
+    /// Packets will be resent after this amount of time if no acknowledgement has not been received.
+    pub resend_after: Duration,
+
+    /// Packets will be resent after this amount of time if no acknowledgement has not been received.
+    /// (this duration is used when an ack is received out of band for a packet)
+    pub fast_resend_after: Duration,
+
     /// The maximum number of unestablished connections that laminar will track internally. This is
     /// used to prevent malicious packet flooding from consuming an unbounded amount of memory.
     pub max_unestablished_connections: usize,
@@ -77,6 +90,8 @@ impl Default for Config {
             rtt_max_value: 250,
             socket_event_buffer_size: 1024,
             socket_polling_timeout: Some(Duration::from_millis(1)),
+            resend_after: DEFAULT_RESEND_AFTER,
+            fast_resend_after: DEFAULT_FAST_RESEND_AFTER,
             max_packets_in_flight: 512,
             max_unestablished_connections: 50,
         }
