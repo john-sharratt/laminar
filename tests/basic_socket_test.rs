@@ -8,8 +8,8 @@ use laminar::{Config, Packet, Socket, SocketEvent};
 #[test]
 fn binding_to_any() {
     // bind to 10 different addresses
-    let sock_without_config = (0..5).map(|_| Socket::<coarsetime::Instant>::bind_any());
-    let sock_with_config = (0..5).map(|_| Socket::bind_any_with_config(Config::default()));
+    let sock_without_config = (0..5).map(|_| Socket::<coarsetime::Instant>::bind_any(false));
+    let sock_with_config = (0..5).map(|_| Socket::bind_any_with_config(Config::default(), false));
 
     let valid_socks: Vec<_> = sock_without_config
         .chain(sock_with_config)
@@ -28,11 +28,11 @@ fn binding_to_any() {
 fn blocking_sender_and_receiver() {
     let cfg = Config::default();
 
-    let mut client = Socket::bind_any_with_config(cfg.clone()).unwrap();
+    let mut client = Socket::bind_any_with_config(cfg.clone(), false).unwrap();
     let mut server = Socket::bind_any_with_config(Config {
         blocking_mode: true,
         ..cfg
-    })
+    }, false)
     .unwrap();
 
     let server_addr = server.local_addr().unwrap();
@@ -57,7 +57,7 @@ fn blocking_sender_and_receiver() {
 fn local_addr() {
     let port = 40000;
     let socket =
-        Socket::<coarsetime::Instant>::bind(format!("127.0.0.1:{}", port).parse::<SocketAddr>().unwrap()).unwrap();
+        Socket::<coarsetime::Instant>::bind(format!("127.0.0.1:{}", port).parse::<SocketAddr>().unwrap(), false).unwrap();
     assert_eq!(port, socket.local_addr().unwrap().as_socket().unwrap().port());
 }
 

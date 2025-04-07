@@ -109,6 +109,7 @@ impl<T: MomentInTime> Connection for VirtualConnection<T> {
         messenger: &mut impl ConnectionMessenger<Self::ReceiveEvent>,
         payload: &[u8],
         time: Self::Instant,
+        should_reset: bool
     ) {
         if !payload.is_empty() {
             match self.process_incoming(payload, time) {
@@ -121,7 +122,7 @@ impl<T: MomentInTime> Connection for VirtualConnection<T> {
                     }
 
                     for (pck, _, conn_id) in packets {
-                        if conn_id != self.connection_id {
+                        if conn_id != self.connection_id && should_reset {
                             debug!("connection reset: {:?}", self.remote_address);
                             self.reset(conn_id);
                         }

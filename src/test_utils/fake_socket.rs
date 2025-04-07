@@ -16,7 +16,7 @@ impl FakeSocket {
     /// Binds to the socket.
     pub fn bind(network: &NetworkEmulator, addr: SockAddr, config: Config) -> Result<Self> {
         Ok(Self {
-            handler: ConnectionManager::new(network.new_socket(addr)?, config),
+            handler: ConnectionManager::new(network.new_socket(addr)?, config, false),
         })
     }
 

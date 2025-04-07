@@ -164,13 +164,14 @@ pub struct ConnectionManager<TConnection: Connection> {
     delayed_packets: Vec<(TConnection::Instant, SockAddr, Vec<u8>)>,
     max_unestablished_connections: usize,
     cur_read_timeout: Option<Duration>,
+    auto_reset: bool,
     rx: Box<dyn DatagramSocketReceiver + Send + Sync>,
     tx: ConnectionSender<TConnection>,
 }
 
 impl<TConnection: Connection> ConnectionManager<TConnection> {
     /// Creates an instance of `ConnectionManager` by passing a socket and config.
-    pub fn new<TSocket: DatagramSocket>(socket: TSocket, config: Config) -> Self {
+    pub fn new<TSocket: DatagramSocket>(socket: TSocket, config: Config, auto_reset: bool) -> Self {
         let (event_sender, event_receiver) = unbounded();
         let max_unestablished_connections = config.max_unestablished_connections;
 
@@ -185,12 +186,18 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
             max_unestablished_connections,
             delayed_packets: Vec::new(),
             cur_read_timeout: None,
+            auto_reset,
             tx: ConnectionSender {
                 connections,
                 tx: SocketEventSenderAndConfig::new(config.clone(), tx, event_sender),
                 event_receiver,
             },
         }
+    }
+
+    /// Returns true if this connection will automatically reset if the connection ID changes
+    pub fn auto_reset(&self) -> bool {
+        self.auto_reset
     }
 
     /// Splits the `ConnectionManager` into two parts: the `ConnectionManagerSender` and the `ConnectionManager`.
@@ -208,13 +215,13 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
             let mut connections = self.connections.lock().unwrap();
             if let Some(conn) = connections.get_mut(&address) {
                 let was_est = conn.is_established();
-                conn.process_packet(messenger, payload, now);
+                conn.process_packet(messenger, payload, now, self.auto_reset);
                 if !was_est && conn.is_established() {
                     unestablished_connections = unestablished_connections.saturating_sub(1);
                 }
             } else {
                 let mut conn = TConnection::create_connection(messenger, address.clone(), now);
-                conn.process_packet(messenger, payload, now);
+                conn.process_packet(messenger, payload, now, self.auto_reset);
 
                 // We only allow a maximum amount number of unestablished connections to bet created
                 // from inbound packets to prevent packet flooding from allocating unbounded memory.

@@ -251,21 +251,21 @@ impl<T: MomentInTime> Socket<T> {
     /// Binds to the socket and then sets up `ActiveConnections` to manage the "connections".
     /// Because UDP connections are not persistent, we can only infer the status of the remote
     /// endpoint by looking to see if they are still sending packets or not
-    pub fn bind<A: ToSocketAddrs>(addresses: A) -> Result<Self> {
-        Self::bind_with_config(addresses, Config::default())
+    pub fn bind<A: ToSocketAddrs>(addresses: A, auto_reset: bool) -> Result<Self> {
+        Self::bind_with_config(addresses, Config::default(), auto_reset)
     }
 
     /// Binds to any local port on the system, if available
-    pub fn bind_any() -> Result<Self> {
-        Self::bind_any_with_config(Config::default())
+    pub fn bind_any(auto_reset: bool) -> Result<Self> {
+        Self::bind_any_with_config(Config::default(), auto_reset)
     }
 
     /// Binds to any local port on the system, if available, with a given config
-    pub fn bind_any_with_config(config: Config) -> Result<Self> {
+    pub fn bind_any_with_config(config: Config, auto_reset: bool) -> Result<Self> {
         let loopback = Ipv4Addr::new(127, 0, 0, 1);
         let address = SocketAddrV4::new(loopback, 0);
         let socket = create_socket(address.into())?;
-        Self::bind_internal(socket, config)
+        Self::bind_internal(socket, config, auto_reset)
     }
 
     /// Binds to the socket and then sets up `ActiveConnections` to manage the "connections".
@@ -273,17 +273,18 @@ impl<T: MomentInTime> Socket<T> {
     /// endpoint by looking to see if they are still sending packets or not
     ///
     /// This function allows you to configure laminar with the passed configuration.
-    pub fn bind_with_config<A: ToSocketAddrs>(addresses: A, config: Config) -> Result<Self> {
+    pub fn bind_with_config<A: ToSocketAddrs>(addresses: A, config: Config, auto_reset: bool) -> Result<Self> {
         let address: SocketAddr = addresses.to_socket_addrs()?.next().unwrap();
         let socket = create_socket(address.into())?;
-        Self::bind_internal(socket, config)
+        Self::bind_internal(socket, config, auto_reset)
     }
 
-    fn bind_internal(socket: socket2::Socket, config: Config) -> Result<Self> {
+    fn bind_internal(socket: socket2::Socket, config: Config, auto_reset: bool) -> Result<Self> {
         Ok(Socket {
             handler: ConnectionManager::new(
                 SocketWithConditioner::new(socket, config.blocking_mode)?,
                 config,
+                auto_reset
             ),
         })
     }

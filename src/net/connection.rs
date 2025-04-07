@@ -70,6 +70,7 @@ pub trait Connection: Debug {
         messenger: &mut impl ConnectionMessenger<Self::ReceiveEvent>,
         payload: &[u8],
         time: Self::Instant,
+        should_reset: bool,
     );
 
     /// Processes a received event and send a packet.

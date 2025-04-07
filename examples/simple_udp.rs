@@ -26,10 +26,10 @@ fn server_address() -> SocketAddr {
 /// This will run an simple example with client and server communicating.
 #[allow(unused_must_use)]
 pub fn main() {
-    let mut server = Socket::bind(server_address()).unwrap();
+    let mut server = Socket::bind(server_address(), false).unwrap();
 
     /*  setup our `Client` and send some test data. */
-    let mut client = Socket::bind(client_address()).unwrap();
+    let mut client = Socket::bind(client_address(), true).unwrap();
 
     client.send(Packet::unreliable(
         server_address().into(),

@@ -11,7 +11,7 @@ use socket2::SockAddr;
 const SERVER: &str = "127.0.0.1:12351";
 
 fn server() -> Result<(), ErrorKind> {
-    let mut socket = Socket::<coarsetime::Instant>::bind(SERVER)?;
+    let mut socket = Socket::<coarsetime::Instant>::bind(SERVER, false)?;
     let (sender, receiver) = (socket.get_packet_sender(), socket.get_event_receiver());
     let _thread = thread::spawn(move || socket.start_polling());
 
@@ -53,7 +53,7 @@ fn server() -> Result<(), ErrorKind> {
 
 fn client() -> Result<(), ErrorKind> {
     let addr = "127.0.0.1:12352";
-    let mut socket = Socket::bind(addr)?;
+    let mut socket = Socket::bind(addr, true)?;
     println!("Connected on {}", addr);
 
     let server: SocketAddr = SERVER.parse().unwrap();
