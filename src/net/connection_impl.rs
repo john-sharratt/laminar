@@ -79,18 +79,21 @@ impl<T: MomentInTime> Connection for VirtualConnection<T> {
         let should_drop = too_many || too_late;
         if should_drop {
             if too_many {
+                log::warn!("Connection overload for [{:?}]: {} packets in flight", &self.remote_address, self.packets_in_flight());
                 messenger.send_event(
                     &self.remote_address,
                     SocketEvent::Overload(self.remote_address.clone()),
                 );
             }
             if too_late {
+                log::warn!("Connection timeout for [{:?}]: {}ms", &self.remote_address, self.last_heard(time).as_millis());
                 messenger.send_event(
                     &self.remote_address,
                     SocketEvent::Timeout(self.remote_address.clone()),
                 );
             }
             if self.is_established() {
+                log::warn!("Connection dropped for [{:?}]: {}ms", &self.remote_address, self.last_heard(time).as_millis());
                 messenger.send_event(
                     &self.remote_address,
                     SocketEvent::Disconnect(self.remote_address.clone()),
