@@ -22,6 +22,9 @@ pub struct Config {
     /// Value which specifies at which interval (if at all) a heartbeat should be sent, if no other packet was sent in the meantime.
     /// If None, no heartbeats will be sent (the default).
     pub heartbeat_interval: Option<Duration>,
+    /// Allows up to `n` holes in the sequence of packets that can still be received if out of order packets
+    /// are received, keeping this value small is important for stability but not too small to minimize packet loss.
+    pub allow_n_seqeuenced_holes: usize,
     /// Value which can specify the maximal allowed fragments.
     ///
     /// Why can't I have more than 255 (u8)?
@@ -82,6 +85,7 @@ impl Default for Config {
             reuse_address: true,
             idle_connection_timeout: Duration::from_secs(5),
             heartbeat_interval: None,
+            allow_n_seqeuenced_holes: 0,
             max_fragments: MAX_FRAGMENTS_DEFAULT,
             fragment_size: FRAGMENT_SIZE_DEFAULT,
             fragment_reassembly_buffer_size: 64,

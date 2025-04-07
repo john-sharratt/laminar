@@ -8,7 +8,7 @@ use crate::{
     },
 };
 
-use super::{AckFieldNumber, FragmentNumber, SequenceNumber, StreamNumber};
+use super::{AckFieldNumber, ConnectionId, FragmentNumber, SequenceNumber, StreamNumber};
 
 /// Builder that could be used to construct an outgoing laminar packet.
 pub struct OutgoingPacketBuilder<'p> {
@@ -30,7 +30,7 @@ impl<'p> OutgoingPacketBuilder<'p> {
         let header = FragmentHeader::new(packet_seq, id, num_fragments);
 
         header
-            .parse(&mut self.header)
+            .write(&mut self.header)
             .expect("Could not write fragment header to buffer");
 
         self
@@ -42,10 +42,11 @@ impl<'p> OutgoingPacketBuilder<'p> {
         packet_type: PacketType,
         delivery_guarantee: DeliveryGuarantee,
         ordering_guarantee: OrderingGuarantee,
+        connection_seed: ConnectionId,
     ) -> Self {
-        let header = StandardHeader::new(delivery_guarantee, ordering_guarantee, packet_type);
+        let header = StandardHeader::new(delivery_guarantee, ordering_guarantee, packet_type, connection_seed);
         header
-            .parse(&mut self.header)
+            .write(&mut self.header)
             .expect("Could not write default header to buffer");
 
         self
@@ -60,7 +61,7 @@ impl<'p> OutgoingPacketBuilder<'p> {
     ) -> Self {
         let header = AckedPacketHeader::new(seq_num, last_seq, bit_field);
         header
-            .parse(&mut self.header)
+            .write(&mut self.header)
             .expect("Could not write acknowledgment header to buffer");
 
         self
@@ -75,7 +76,7 @@ impl<'p> OutgoingPacketBuilder<'p> {
             ArrangingHeader::new(arranging_id, stream_id.unwrap_or(DEFAULT_SEQUENCING_STREAM));
 
         header
-            .parse(&mut self.header)
+            .write(&mut self.header)
             .expect("Could not write arranging header to buffer");
 
         self
@@ -90,7 +91,7 @@ impl<'p> OutgoingPacketBuilder<'p> {
             ArrangingHeader::new(arranging_id, stream_id.unwrap_or(DEFAULT_ORDERING_STREAM));
 
         header
-            .parse(&mut self.header)
+            .write(&mut self.header)
             .expect("Could not write arranging header to buffer");
 
         self
@@ -198,6 +199,7 @@ mod tests {
                 PacketType::Packet,
                 DeliveryGuarantee::Reliable,
                 OrderingGuarantee::Sequenced(None),
+                0,
             )
             .build();
 

@@ -24,6 +24,13 @@ impl<T: Clone + Default> SequenceBuffer<T> {
         }
     }
 
+    /// Resets the sequence buffer to its initial state.
+    pub fn reset(&mut self) {
+        self.sequence_num = 0;
+        self.entry_sequences.iter_mut().for_each(|s| *s = None);
+        self.entries.iter_mut().for_each(|e| *e = T::default());
+    }
+
     /// Returns the most recently stored sequence number.
     pub fn sequence_num(&self) -> SequenceNumber {
         self.sequence_num

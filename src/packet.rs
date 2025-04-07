@@ -15,12 +15,13 @@ mod packet_structure;
 mod process_result;
 
 /// The stream of ordered/sequential packets for a specific connection
-pub type StreamNumber = u16;
+pub type StreamNumber = u8;
 /// The fragment number of a fragmented packet
 pub type FragmentNumber = u8;
 /// The sequence number of a packet
 pub type SequenceNumber = u32;
 pub type AckFieldNumber = u32;
+pub type ConnectionId = u16;
 
 pub const SEQUENCE_MID: SequenceNumber = ((SequenceNumber::MAX - 1) / 2 ) + 1;
 

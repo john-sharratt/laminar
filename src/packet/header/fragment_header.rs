@@ -45,7 +45,7 @@ impl FragmentHeader {
 impl HeaderWriter for FragmentHeader {
     type Output = Result<()>;
 
-    fn parse(&self, buffer: &mut Vec<u8>) -> Self::Output {
+    fn write(&self, buffer: &mut Vec<u8>) -> Self::Output {
         buffer.write_u32::<BigEndian>(self.sequence)?;
         buffer.write_u8(self.id)?;
         buffer.write_u8(self.num_fragments)?;
@@ -89,7 +89,7 @@ mod tests {
     fn serialize() {
         let mut buffer = Vec::new();
         let header = FragmentHeader::new(1, 2, 3);
-        assert![header.parse(&mut buffer).is_ok()];
+        assert![header.write(&mut buffer).is_ok()];
 
         assert_eq!(buffer[(size_of::<SequenceNumber>()) - 1], 1);
         assert_eq!(buffer[(size_of::<SequenceNumber>() + size_of::<FragmentNumber>()) - 1], 2);

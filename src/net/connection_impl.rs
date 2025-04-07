@@ -120,8 +120,12 @@ impl<T: MomentInTime> Connection for VirtualConnection<T> {
                         );
                     }
 
-                    for incoming in packets {
-                        messenger.send_event(&self.remote_address, SocketEvent::Packet(incoming.0));
+                    for (pck, _, conn_id) in packets {
+                        if conn_id != self.connection_id {
+                            debug!("connection reset: {:?}", self.remote_address);
+                            self.reset(conn_id);
+                        }
+                        messenger.send_event(&self.remote_address, SocketEvent::Packet(pck));
                     }
                 }
                 Err(err) => debug!("Error occured processing incomming packet: {}", err),

@@ -6,7 +6,7 @@ use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
 use crate::PROTOCOL_VERSION;
 use crate::error::Result;
 use crate::net::constants::STANDARD_HEADER_SIZE;
-use crate::packet::{DeliveryGuarantee, EnumConverter, OrderingGuarantee, PacketType};
+use crate::packet::{ConnectionId, DeliveryGuarantee, EnumConverter, OrderingGuarantee, PacketType};
 
 use super::{HeaderReader, HeaderWriter};
 
@@ -14,6 +14,7 @@ use super::{HeaderReader, HeaderWriter};
 /// This header will be included in each packet, and contains some basic information.
 pub struct StandardHeader {
     protocol_version: u16,
+    connection_id: ConnectionId,
     packet_type: PacketType,
     delivery_guarantee: DeliveryGuarantee,
     ordering_guarantee: OrderingGuarantee,
@@ -25,9 +26,11 @@ impl StandardHeader {
         delivery_guarantee: DeliveryGuarantee,
         ordering_guarantee: OrderingGuarantee,
         packet_type: PacketType,
+        connection_seed: ConnectionId,
     ) -> Self {
         StandardHeader {
             protocol_version:PROTOCOL_VERSION,
+            connection_id: connection_seed,
             delivery_guarantee,
             ordering_guarantee,
             packet_type,
@@ -55,6 +58,11 @@ impl StandardHeader {
         self.packet_type
     }
 
+    /// Returns the connection seed
+    pub fn connection_id(&self) -> ConnectionId {
+        self.connection_id
+    }
+
     /// Returns true if the packet is a heartbeat packet, false otherwise
     pub fn is_heartbeat(&self) -> bool {
         self.packet_type == PacketType::Heartbeat
@@ -77,6 +85,7 @@ impl Default for StandardHeader {
             DeliveryGuarantee::Unreliable,
             OrderingGuarantee::None,
             PacketType::Packet,
+            rand::random(),
         )
     }
 }
@@ -84,11 +93,12 @@ impl Default for StandardHeader {
 impl HeaderWriter for StandardHeader {
     type Output = Result<()>;
 
-    fn parse(&self, buffer: &mut Vec<u8>) -> Self::Output {
+    fn write(&self, buffer: &mut Vec<u8>) -> Self::Output {
         buffer.write_u16::<BigEndian>(self.protocol_version)?;
+        buffer.write_u16::<BigEndian>(self.connection_id)?;
         buffer.write_u8(self.packet_type.to_u8())?;
         buffer.write_u8(self.delivery_guarantee.to_u8())?;
-        buffer.write_u8(self.ordering_guarantee.to_u8())?;
+        buffer.write_u16::<BigEndian>(self.ordering_guarantee.to_u16())?;
         Ok(())
     }
 }
@@ -98,15 +108,17 @@ impl HeaderReader for StandardHeader {
 
     fn read(rdr: &mut Cursor<&[u8]>) -> Self::Header {
         let protocol_version = rdr.read_u16::<BigEndian>()?; /* protocol id */
+        let connection_seed = rdr.read_u16::<BigEndian>()?;
         let packet_id = rdr.read_u8()?;
         let delivery_guarantee_id = rdr.read_u8()?;
-        let order_guarantee_id = rdr.read_u8()?;
+        let order_guarantee_id = rdr.read_u16::<BigEndian>()?;
 
         let header = StandardHeader {
             protocol_version,
             packet_type: PacketType::try_from(packet_id)?,
             delivery_guarantee: DeliveryGuarantee::try_from(delivery_guarantee_id)?,
             ordering_guarantee: OrderingGuarantee::try_from(order_guarantee_id)?,
+            connection_id: connection_seed,
         };
 
         Ok(header)
@@ -125,26 +137,54 @@ mod tests {
     use crate::net::constants::STANDARD_HEADER_SIZE;
     use crate::packet::header::{HeaderReader, HeaderWriter, StandardHeader};
     use crate::packet::{DeliveryGuarantee, EnumConverter, OrderingGuarantee, PacketType};
+    use crate::PROTOCOL_VERSION;
 
     #[test]
     fn serialize() {
-        let mut buffer = Vec::new();
+        let mut b = Vec::new();
         let header = StandardHeader::new(
             DeliveryGuarantee::Unreliable,
-            OrderingGuarantee::Sequenced(None),
+            OrderingGuarantee::Sequenced(Some(8)),
             PacketType::Packet,
+            17,
         );
-        assert![header.parse(&mut buffer).is_ok()];
+        assert![header.write(&mut b).is_ok()];
 
         // [0 .. 3] protocol version
-        assert_eq!(buffer[2], PacketType::Packet.to_u8());
-        assert_eq!(buffer[3], DeliveryGuarantee::Unreliable.to_u8());
-        assert_eq!(buffer[4], OrderingGuarantee::Sequenced(None).to_u8());
+        assert_eq!([b[0], b[1]], 4u16.to_be_bytes());
+        assert_eq!([b[2], b[3]], 17u16.to_be_bytes());
+        assert_eq!(b[4], PacketType::Packet.to_u8());
+        assert_eq!(b[5], DeliveryGuarantee::Unreliable.to_u8());
+        assert_eq!([b[6], b[7]], OrderingGuarantee::Sequenced(Some(8)).to_u16().to_be_bytes());
+    }
+
+    #[test]
+    fn serialize_then_deserialize() {
+        let mut buffer = Vec::new();
+        let header = StandardHeader::new(
+            DeliveryGuarantee::Reliable,
+            OrderingGuarantee::Ordered(Some(5)),
+            PacketType::Packet,
+            17,
+        );
+        assert![header.write(&mut buffer).is_ok()];
+
+        let mut cursor = Cursor::new(buffer.as_slice());
+        let header = StandardHeader::read(&mut cursor).unwrap();
+
+        assert_eq!(header.protocol_version(), PROTOCOL_VERSION);
+        assert_eq!(header.packet_type(), PacketType::Packet);
+        assert_eq!(header.delivery_guarantee(), DeliveryGuarantee::Reliable);
+        assert_eq!(header.connection_id(), 17);
+        assert_eq!(
+            header.ordering_guarantee(),
+            OrderingGuarantee::Ordered(Some(5))
+        );
     }
 
     #[test]
     fn deserialize() {
-        let buffer = vec![0, 1, 0, 1, 1];
+        let buffer = vec![0, 1, 0, 1, 1, 0, 3];
 
         let mut cursor = Cursor::new(buffer.as_slice());
 
@@ -153,6 +193,7 @@ mod tests {
         assert_eq!(header.protocol_version(), 1);
         assert_eq!(header.packet_type(), PacketType::Packet);
         assert_eq!(header.delivery_guarantee(), DeliveryGuarantee::Reliable);
+        assert_eq!(header.connection_id(), 3);
         assert_eq!(
             header.ordering_guarantee(),
             OrderingGuarantee::Sequenced(None)
@@ -161,6 +202,6 @@ mod tests {
 
     #[test]
     fn size() {
-        assert_eq!(StandardHeader::size(), STANDARD_HEADER_SIZE);
+        assert_eq!(8, STANDARD_HEADER_SIZE);
     }
 }

@@ -51,7 +51,7 @@ impl AckedPacketHeader {
 impl HeaderWriter for AckedPacketHeader {
     type Output = Result<()>;
 
-    fn parse(&self, buffer: &mut Vec<u8>) -> Self::Output {
+    fn write(&self, buffer: &mut Vec<u8>) -> Self::Output {
         buffer.write_u32::<BigEndian>(self.seq)?;
         buffer.write_u32::<BigEndian>(self.ack_seq)?;
         buffer.write_u32::<BigEndian>(self.ack_field)?;
@@ -91,7 +91,7 @@ mod tests {
     fn serialize() {
         let mut buffer = Vec::new();
         let header = AckedPacketHeader::new(1, 2, 3);
-        assert![header.parse(&mut buffer).is_ok()];
+        assert![header.write(&mut buffer).is_ok()];
 
         assert_eq!(buffer[size_of::<SequenceNumber>() - 1], 1);
         assert_eq!(buffer[(size_of::<SequenceNumber>() * 2) - 1], 2);

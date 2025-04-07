@@ -51,28 +51,31 @@ pub enum OrderingGuarantee {
     Ordered(Option<StreamNumber>),
 }
 
-impl EnumConverter for OrderingGuarantee {
-    type Enum = OrderingGuarantee;
-
+impl OrderingGuarantee {
     /// Returns the integer value from `OrderingGuarantee` enum.
-    fn to_u8(&self) -> u8 {
+    pub fn to_u16(&self) -> u16 {
         match self {
-            OrderingGuarantee::None => 0,
-            OrderingGuarantee::Sequenced(_) => 1,
-            OrderingGuarantee::Ordered(_) => 2,
+            OrderingGuarantee::None => u16::from_be_bytes([0, 0]),
+            OrderingGuarantee::Sequenced(None) => u16::from_be_bytes([1, 0]),
+            OrderingGuarantee::Ordered(None) => u16::from_be_bytes([2, 0]),
+            OrderingGuarantee::Sequenced(Some(s)) => u16::from_be_bytes([3, *s]),
+            OrderingGuarantee::Ordered(Some(s)) => u16::from_be_bytes([4, *s]),
         }
     }
 }
 
-impl TryFrom<u8> for OrderingGuarantee {
+impl TryFrom<u16> for OrderingGuarantee {
     type Error = ErrorKind;
     /// Returns the `OrderingGuarantee` enum instance from integer value.
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(OrderingGuarantee::None),
-            1 => Ok(OrderingGuarantee::Sequenced(None)),
-            2 => Ok(OrderingGuarantee::Ordered(None)),
-            _ => Err(ErrorKind::DecodingError(
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        let value = value.to_be_bytes();
+        match (value[0], value[1]) {
+            (0, 0) => Ok(OrderingGuarantee::None),
+            (1, 0) => Ok(OrderingGuarantee::Sequenced(None)),
+            (2, 0) => Ok(OrderingGuarantee::Ordered(None)),
+            (3, s) => Ok(OrderingGuarantee::Sequenced(Some(s))),
+            (4, s) => Ok(OrderingGuarantee::Ordered(Some(s))),
+            (_, _) => Err(ErrorKind::DecodingError(
                 DecodingErrorKind::OrderingGuarantee,
             )),
         }
@@ -124,19 +127,29 @@ mod tests {
         let none = OrderingGuarantee::None;
         let ordered = OrderingGuarantee::Ordered(None);
         let sequenced = OrderingGuarantee::Sequenced(None);
+        let ordered_with_stream = OrderingGuarantee::Ordered(Some(1));
+        let sequenced_with_stream = OrderingGuarantee::Sequenced(Some(1));
 
         assert_eq!(
             OrderingGuarantee::None,
-            OrderingGuarantee::try_from(none.to_u8()).unwrap()
+            OrderingGuarantee::try_from(none.to_u16()).unwrap()
         );
         assert_eq!(
             OrderingGuarantee::Ordered(None),
-            OrderingGuarantee::try_from(ordered.to_u8()).unwrap()
+            OrderingGuarantee::try_from(ordered.to_u16()).unwrap()
         );
         assert_eq!(
             OrderingGuarantee::Sequenced(None),
-            OrderingGuarantee::try_from(sequenced.to_u8()).unwrap()
-        )
+            OrderingGuarantee::try_from(sequenced.to_u16()).unwrap()
+        );
+        assert_eq!(
+            OrderingGuarantee::Ordered(Some(1)),
+            OrderingGuarantee::try_from(ordered_with_stream.to_u16()).unwrap()
+        );
+        assert_eq!(
+            OrderingGuarantee::Sequenced(Some(1)),
+            OrderingGuarantee::try_from(sequenced_with_stream.to_u16()).unwrap()
+        );
     }
 
     #[test]

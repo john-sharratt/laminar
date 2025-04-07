@@ -11,7 +11,7 @@ pub const ACKED_PACKET_HEADER: usize =
 /// The size of the arranging header.
 pub const ARRANGING_PACKET_HEADER: usize = size_of::<SequenceNumber>() + size_of::<StreamNumber>();
 /// The size of the standard header.
-pub const STANDARD_HEADER_SIZE: usize = 5;
+pub const STANDARD_HEADER_SIZE: usize = 8;
 /// The ordering stream that will be used to order on if none was specified.
 pub const DEFAULT_ORDERING_STREAM: StreamNumber = StreamNumber::MAX;
 /// The sequencing stream that will be used to sequence packets on if none was specified.
@@ -35,4 +35,4 @@ pub const DEFAULT_MTU: u16 = 1452;
 /// This is the current protocol version.
 ///
 /// Incremental monolithic protocol number.
-pub const PROTOCOL_VERSION: u16 = 3;
+pub const PROTOCOL_VERSION: u16 = 4;

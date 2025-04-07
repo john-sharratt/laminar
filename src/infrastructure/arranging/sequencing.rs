@@ -11,6 +11,8 @@
 
 use std::{collections::HashMap, marker::PhantomData};
 
+use linked_hash_set::LinkedHashSet;
+
 use crate::packet::{SequenceNumber, StreamNumber, SEQUENCE_MID};
 
 use super::{Arranging, ArrangingSystem};
@@ -24,14 +26,22 @@ use super::{Arranging, ArrangingSystem};
 pub struct SequencingSystem<T> {
     // '[HashMap]' with streams on which items can be arranged in-sequence.
     streams: HashMap<StreamNumber, SequencingStream<T>>,
+    // the maximum number of holes that can be stored before it starts dropped holes.
+    max_holes: usize,
 }
 
 impl<T> SequencingSystem<T> {
     /// Constructs a new [`SequencingSystem`](./struct.SequencingSystem.html).
-    pub fn new() -> SequencingSystem<T> {
+    pub fn new(max_holes: usize) -> SequencingSystem<T> {
         SequencingSystem {
             streams: HashMap::with_capacity(32),
+            max_holes
         }
+    }
+
+    /// Resets the sequencing system after the connection was reset.
+    pub fn reset(&mut self) {
+        self.streams.clear();
     }
 }
 
@@ -48,7 +58,7 @@ impl<T> ArrangingSystem for SequencingSystem<T> {
     fn get_or_create_stream(&mut self, stream_id: StreamNumber) -> &mut Self::Stream {
         self.streams
             .entry(stream_id)
-            .or_insert_with(|| SequencingStream::new(stream_id))
+            .or_insert_with(|| SequencingStream::new(stream_id, self.max_holes))
     }
 }
 
@@ -73,6 +83,11 @@ pub struct SequencingStream<T> {
     _stream_id: StreamNumber,
     // the highest seen item index.
     top_index: SequenceNumber,
+    // holes occur when packets are received out of order.
+    holes: LinkedHashSet<SequenceNumber>,
+    // the maximum number of holes that can be stored before it
+    // starts dropped holes.
+    max_holes: usize,
     // Needs `PhantomData`, otherwise, it can't use a generic in the `Arranging` implementation because `T` is not constrained.
     phantom: PhantomData<T>,
     // unique identifier which should be used for ordering on an other stream e.g. the remote endpoint.
@@ -83,10 +98,12 @@ impl<T> SequencingStream<T> {
     /// Constructs a new, empty '[SequencingStream](./struct.SequencingStream.html)'.
     ///
     /// The default stream will have a capacity of 32 items.
-    pub fn new(stream_id: StreamNumber) -> SequencingStream<T> {
+    pub fn new(stream_id: StreamNumber, max_holes: usize) -> SequencingStream<T> {
         SequencingStream {
             _stream_id: stream_id,
             top_index: 0,
+            holes: LinkedHashSet::new(),
+            max_holes,
             phantom: PhantomData,
             unique_item_identifier: 0,
         }
@@ -137,10 +154,38 @@ impl<T> Arranging for SequencingStream<T> {
         incoming_index: SequenceNumber,
         item: Self::ArrangingItem,
     ) -> Option<Self::ArrangingItem> {
-        if is_seq_within_half_window_from_start(self.top_index, incoming_index) {
+        // if the incoming index is something in the future then we will return it.
+        if is_seq_within_half_window_from_start(self.top_index, incoming_index) {            
+            // remembering holes is an optional feature
+            if self.max_holes > 0 {
+                // any holes that are too old will be removed.
+                while self.holes.front().map(|&x| is_seq_within_half_window_from_start(self.top_index, x)).unwrap_or(false) {
+                    self.holes.pop_front();
+                }
+                // create any holes that need to be created due to receiving packets out of order.
+                let mut tickets = self.max_holes;
+                let mut hole = self.top_index.wrapping_add(1);
+                while tickets > 0 && hole != incoming_index {
+                    self.holes.insert(hole);
+                    hole = hole.wrapping_add(1);
+                    tickets = tickets.saturating_sub(1);
+                }
+                while self.holes.len() > self.max_holes {
+                    self.holes.pop_front();
+                }
+            }
+
+            // update the pointer to the incoming index.
             self.top_index = incoming_index;
             return Some(item);
         }
+
+        // it might also be that this packet is plugging a hole for a previous packet that
+        // was sent out of order.
+        if self.holes.remove(&incoming_index) {
+            return Some(item);
+        }
+
         None
     }
 }
@@ -168,7 +213,7 @@ mod tests {
 
     #[test]
     fn create_stream() {
-        let mut system: SequencingSystem<Packet> = SequencingSystem::new();
+        let mut system: SequencingSystem<Packet> = SequencingSystem::new(0);
         let stream = system.get_or_create_stream(1);
 
         assert_eq!(stream.stream_id(), 1);
@@ -176,7 +221,7 @@ mod tests {
 
     #[test]
     fn create_existing_stream() {
-        let mut system: SequencingSystem<Packet> = SequencingSystem::new();
+        let mut system: SequencingSystem<Packet> = SequencingSystem::new(0);
 
         system.get_or_create_stream(1);
         let stream = system.get_or_create_stream(1);
@@ -195,7 +240,7 @@ mod tests {
                 let after = [$($y,)*];
 
                 // create system to handle sequenced packets.
-                let mut sequence_system = SequencingSystem::<Packet>::new();
+                let mut sequence_system = SequencingSystem::<Packet>::new(0);
 
                 // get stream '1' to process the sequenced packets on.
                 let stream = sequence_system.get_or_create_stream(1);

@@ -95,6 +95,11 @@ impl<T> OrderingSystem<T> {
             streams: HashMap::with_capacity(32),
         }
     }
+
+    /// Resets the ordering system after the connection was reestablished.
+    pub fn reset(&mut self) {
+        self.streams.clear();
+    }
 }
 
 impl<T> ArrangingSystem for OrderingSystem<T> {

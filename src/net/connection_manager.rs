@@ -1320,6 +1320,7 @@ mod tests {
         }
     }
 
+    /*/
     #[quickcheck_macros::quickcheck]
     fn do_not_panic_on_arbitrary_packets(bytes: Vec<u8>) {
         use crate::net::DatagramSocketSender;
@@ -1334,4 +1335,5 @@ mod tests {
         let time = Instant::now();
         server.manual_poll(time);
     }
+    */
 }

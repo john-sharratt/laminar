@@ -14,9 +14,7 @@ use crate::{
         STANDARD_HEADER_SIZE,
     },
     packet::{
-        DeliveryGuarantee, FragmentNumber, IncomingPackets, OrderingGuarantee,
-        OutgoingPacketBuilder, OutgoingPackets, Packet, PacketInfo, PacketReader, PacketType,
-        SequenceNumber,
+        ConnectionId, DeliveryGuarantee, FragmentNumber, IncomingPackets, OrderingGuarantee, OutgoingPacketBuilder, OutgoingPackets, Packet, PacketInfo, PacketReader, PacketType, SequenceNumber
     },
 };
 
@@ -31,6 +29,8 @@ pub struct VirtualConnection<T: MomentInTime> {
     pub last_sent: T,
     /// The address of the remote endpoint
     pub remote_address: SockAddr,
+    /// The connection seed used to identify when connection resets occur
+    pub connection_id: ConnectionId,
 
     ever_sent: bool,
     ever_recv: bool,
@@ -50,10 +50,11 @@ impl<T: MomentInTime> VirtualConnection<T> {
             last_heard: time,
             last_sent: time,
             remote_address: addr,
+            connection_id: rand::random::<ConnectionId>(),
             ever_sent: false,
             ever_recv: false,
             ordering_system: OrderingSystem::new(),
-            sequencing_system: SequencingSystem::new(),
+            sequencing_system: SequencingSystem::new(config.allow_n_seqeuenced_holes),
             acknowledge_handler: AcknowledgmentHandler::new(
                 config.resend_after,
                 config.fast_resend_after,
@@ -66,6 +67,19 @@ impl<T: MomentInTime> VirtualConnection<T> {
     /// Returns the current time
     pub fn now() -> T {
         T::now()
+    }
+
+    /// Resets the connection to its initial state, this ensures all the
+    /// internal buffers are cleared and sequence numbers start from zero
+    pub fn reset(&mut self, connection_id: ConnectionId) {
+        self.connection_id = connection_id;
+        self.last_heard = T::now();
+        self.last_sent = T::now();
+        self.ever_sent = false;
+        self.ever_recv = false;
+        self.acknowledge_handler.reset();
+        self.ordering_system.reset();
+        self.sequencing_system.reset();
     }
 
     /// Records that this connection has sent a packet. Returns whether the connection has
@@ -129,7 +143,7 @@ impl<T: MomentInTime> VirtualConnection<T> {
                     }
 
                     let mut builder = OutgoingPacketBuilder::new(packet.payload)
-                        .with_default_header(packet.packet_type, packet.delivery, packet.ordering);
+                        .with_default_header(packet.packet_type, packet.delivery, packet.ordering, self.connection_id);
 
                     if let OrderingGuarantee::Sequenced(stream_id) = packet.ordering {
                         let item_identifier = self
@@ -161,6 +175,7 @@ impl<T: MomentInTime> VirtualConnection<T> {
                                 packet.packet_type,
                                 packet.delivery,
                                 packet.ordering,
+                                self.connection_id
                             );
 
                         builder = builder.with_acknowledgment_header(
@@ -225,6 +240,7 @@ impl<T: MomentInTime> VirtualConnection<T> {
                                             PacketType::Fragment, // change from Packet to Fragment type, it only matters when assembling/dissasembling packet header.
                                             packet.delivery,
                                             packet.ordering,
+                                            self.connection_id
                                         );
 
                                     builder = builder.with_fragment_header(
@@ -310,6 +326,7 @@ impl<T: MomentInTime> VirtualConnection<T> {
                                 "received packet",
                             ),
                             header.packet_type(),
+                            header.connection_id()
                         ));
                     }
 
@@ -327,6 +344,7 @@ impl<T: MomentInTime> VirtualConnection<T> {
                         "received packet",
                     ),
                     header.packet_type(),
+                    header.connection_id(),
                 ));
             }
             DeliveryGuarantee::Reliable => {
@@ -361,6 +379,7 @@ impl<T: MomentInTime> VirtualConnection<T> {
                                         "received packet",
                                     ),
                                     PacketType::Packet, // change from Fragment to Packet type, it only matters when assembling/dissasembling packet header.
+                                    header.connection_id(),
                                 ));
                             }
                             Ok(None) => return Ok(IncomingPackets::zero()),
@@ -406,6 +425,7 @@ impl<T: MomentInTime> VirtualConnection<T> {
                                     "received packet",
                                 ),
                                 header.packet_type(),
+                                header.connection_id(),
                             ));
                         }
                     } else if let OrderingGuarantee::Ordered(_id) = header.ordering_guarantee() {
@@ -440,6 +460,7 @@ impl<T: MomentInTime> VirtualConnection<T> {
                                             "received packet",
                                         ),
                                         packet_type,
+                                        header.connection_id(),
                                     )
                                 })
                                 .collect(),
@@ -457,6 +478,7 @@ impl<T: MomentInTime> VirtualConnection<T> {
                                 "received packet",
                             ),
                             header.packet_type(),
+                            header.connection_id(),
                         ));
                     }
                 }
@@ -624,7 +646,7 @@ mod tests {
             .into_iter()
             .next();
         assert!(packet.is_none());
-        let (packets, _) = connection
+        let (packets, _, _) = connection
             .process_incoming(
                 [
                     standard_header.as_slice(),
@@ -978,32 +1000,32 @@ mod tests {
         let mut packet = Vec::new();
 
         // configure the right header based on specified guarantees.
-        let header = StandardHeader::new(delivery, ordering, PacketType::Packet);
-        header.parse(&mut packet).unwrap();
+        let header = StandardHeader::new(delivery, ordering, PacketType::Packet, 0);
+        header.write(&mut packet).unwrap();
 
         if let OrderingGuarantee::Sequenced(val) = ordering {
             if delivery == DeliveryGuarantee::Reliable {
                 let ack_header = AckedPacketHeader::new(1, 2, 3);
-                ack_header.parse(&mut packet).unwrap();
+                ack_header.write(&mut packet).unwrap();
             }
 
             let order_header = ArrangingHeader::new(order_id, val.unwrap());
-            order_header.parse(&mut packet).unwrap();
+            order_header.write(&mut packet).unwrap();
         }
 
         if let OrderingGuarantee::Ordered(val) = ordering {
             if delivery == DeliveryGuarantee::Reliable {
                 let ack_header = AckedPacketHeader::new(1, 2, 3);
                 let order_header = ArrangingHeader::new(order_id, val.unwrap());
-                ack_header.parse(&mut packet).unwrap();
-                order_header.parse(&mut packet).unwrap();
+                ack_header.write(&mut packet).unwrap();
+                order_header.write(&mut packet).unwrap();
             }
         }
 
         if let OrderingGuarantee::None = ordering {
             if delivery == DeliveryGuarantee::Reliable {
                 let ack_header = AckedPacketHeader::new(1, 2, 3);
-                ack_header.parse(&mut packet).unwrap();
+                ack_header.write(&mut packet).unwrap();
             }
         }
 
@@ -1014,7 +1036,7 @@ mod tests {
             .unwrap()
             .into_iter()
             .next()
-            .map(|(packet, _)| packet);
+            .map(|(packet, _, _)| packet);
         assert_eq!(packets, result_packet);
     }
 
@@ -1027,17 +1049,17 @@ mod tests {
         let mut packet = Vec::new();
 
         // configure the right header based on specified guarantees.
-        let header = StandardHeader::new(delivery, OrderingGuarantee::None, PacketType::Packet);
-        header.parse(&mut packet).unwrap();
+        let header = StandardHeader::new(delivery, OrderingGuarantee::None, PacketType::Packet, 0);
+        header.write(&mut packet).unwrap();
 
         if delivery == DeliveryGuarantee::Reliable {
             let ack_header = AckedPacketHeader::new(1, 2, 3);
-            ack_header.parse(&mut packet).unwrap();
+            ack_header.write(&mut packet).unwrap();
         }
 
         packet.write_all(&PAYLOAD).unwrap();
 
-        let (packet, _) = connection
+        let (packet, _, _) = connection
             .process_incoming(packet.as_slice(), Instant::now())
             .unwrap()
             .into_iter()
@@ -1187,7 +1209,7 @@ mod tests {
                 .process_incoming(&packet_sent.contents(), time)
                 .unwrap();
 
-            for (packet, _) in packets.into_iter() {
+            for (packet, _, _) in packets.into_iter() {
                 let mut recv_buff = [0; 4];
                 recv_buff.copy_from_slice(packet.payload());
                 let value = u32::from_ne_bytes(recv_buff);

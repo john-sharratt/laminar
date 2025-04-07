@@ -3,6 +3,8 @@ use std::collections::VecDeque;
 use crate::either::Either;
 use crate::packet::{OutgoingPacket, Packet, PacketType};
 
+use super::ConnectionId;
+
 /// Used to return incoming (from bytes to packets) or outgoing (from packet to bytes) packets.
 /// It is used as optimization in cases, where most of the time there is only one element to iterate, and we don't want to create a vector for it.
 #[derive(Debug)]
@@ -75,7 +77,7 @@ impl<'a> IntoIterator for OutgoingPackets<'a> {
 /// Stores parsed packets with their types, that was received from network, implements `IntoIterator` for convenience.
 #[derive(Debug)]
 pub struct IncomingPackets {
-    data: ZeroOrMore<(Packet, PacketType)>,
+    data: ZeroOrMore<(Packet, PacketType, ConnectionId)>,
 }
 
 impl IncomingPackets {
@@ -87,14 +89,14 @@ impl IncomingPackets {
     }
 
     /// Stores only one packet, without allocating on the heap.
-    pub fn one(packet: Packet, packet_type: PacketType) -> Self {
+    pub fn one(packet: Packet, packet_type: PacketType, conn_id: ConnectionId) -> Self {
         Self {
-            data: ZeroOrMore::one((packet, packet_type)),
+            data: ZeroOrMore::one((packet, packet_type, conn_id)),
         }
     }
 
     /// Stores multiple packets, allocated on the heap.
-    pub fn many(vec: VecDeque<(Packet, PacketType)>) -> Self {
+    pub fn many(vec: VecDeque<(Packet, PacketType, ConnectionId)>) -> Self {
         Self {
             data: ZeroOrMore::many(vec),
         }
@@ -102,7 +104,7 @@ impl IncomingPackets {
 }
 
 impl IntoIterator for IncomingPackets {
-    type Item = (Packet, PacketType);
+    type Item = (Packet, PacketType, ConnectionId);
     type IntoIter = ZeroOrMore<Self::Item>;
 
     fn into_iter(self) -> Self::IntoIter {

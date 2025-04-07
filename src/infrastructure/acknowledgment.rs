@@ -38,6 +38,14 @@ impl<T: MomentInTime> AcknowledgmentHandler<T> {
         }
     }
 
+    /// Resets the acknowledgment handler to its initial state.
+    pub fn reset(&mut self) {
+        self.sequence_number = 0;
+        self.remote_ack_sequence_num = SequenceNumber::max_value();
+        self.sent_packets.clear();
+        self.received_packets.reset();
+    }
+
     /// Returns the current number of not yet acknowledged packets
     pub fn packets_in_flight(&self) -> usize {
         self.sent_packets.len()
