@@ -165,12 +165,12 @@ impl Packet {
     ///
     /// The packet will be sent reliablely, but only the latest packet will be resent should
     /// the connection become clogged up
-    pub fn reliable_timeout(addr: SockAddr, payload: Vec<u8>, timeout: Duration, context: &'static str,) -> Packet {
+    pub fn reliable_timeout(addr: SockAddr, payload: Vec<u8>, stream_id: StreamNumber, timeout: Duration, context: &'static str,) -> Packet {
         Packet {
             addr,
             payload: payload.into_boxed_slice(),
             delivery: DeliveryGuarantee::Reliable,
-            ordering: OrderingGuarantee::Sequenced(Some(1)),
+            ordering: OrderingGuarantee::Sequenced(Some(stream_id)),
             latest_identifier: None,
             expiration: Some(timeout),
             context
@@ -188,12 +188,12 @@ impl Packet {
     ///
     /// The packet will be sent reliablely, but only the latest packet will be resent should
     /// the connection become clogged up
-    pub fn reliable_latest_timeout(addr: SockAddr, payload: Vec<u8>, latest_identifier: u64, timeout: Duration, context: &'static str,) -> Packet {
+    pub fn reliable_latest_timeout(addr: SockAddr, payload: Vec<u8>, latest_identifier: u64, stream_id: StreamNumber, timeout: Duration, context: &'static str,) -> Packet {
         Packet {
             addr,
             payload: payload.into_boxed_slice(),
             delivery: DeliveryGuarantee::Reliable,
-            ordering: OrderingGuarantee::Sequenced(Some(1)),
+            ordering: OrderingGuarantee::Sequenced(Some(stream_id)),
             latest_identifier: Some(latest_identifier),
             expiration: Some(timeout),
             context
