@@ -170,7 +170,7 @@ impl Packet {
             addr,
             payload: payload.into_boxed_slice(),
             delivery: DeliveryGuarantee::Reliable,
-            ordering: OrderingGuarantee::None,
+            ordering: OrderingGuarantee::Sequenced(Some(1)),
             latest_identifier: None,
             expiration: Some(timeout),
             context
@@ -193,7 +193,7 @@ impl Packet {
             addr,
             payload: payload.into_boxed_slice(),
             delivery: DeliveryGuarantee::Reliable,
-            ordering: OrderingGuarantee::None,
+            ordering: OrderingGuarantee::Sequenced(Some(1)),
             latest_identifier: Some(latest_identifier),
             expiration: Some(timeout),
             context
