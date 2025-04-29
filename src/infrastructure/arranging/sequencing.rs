@@ -101,7 +101,7 @@ impl<T> SequencingStream<T> {
     pub fn new(stream_id: StreamNumber, max_holes: usize) -> SequencingStream<T> {
         SequencingStream {
             _stream_id: stream_id,
-            top_index: 0,
+            top_index: SequenceNumber::MAX,
             holes: LinkedHashSet::new(),
             max_holes,
             phantom: PhantomData,
@@ -154,6 +154,11 @@ impl<T> Arranging for SequencingStream<T> {
         incoming_index: SequenceNumber,
         item: Self::ArrangingItem,
     ) -> Option<Self::ArrangingItem> {
+        // if its exactly the same as the last one we have seen, we can toss it away.
+        if incoming_index == self.top_index {
+            return None;
+        }
+
         // if the incoming index is something in the future then we will return it.
         if is_seq_within_half_window_from_start(self.top_index, incoming_index) {            
             // remembering holes is an optional feature
@@ -163,15 +168,12 @@ impl<T> Arranging for SequencingStream<T> {
                     self.holes.pop_front();
                 }
                 // create any holes that need to be created due to receiving packets out of order.
-                let mut tickets = self.max_holes;
+                let mut tickets = self.max_holes.saturating_sub(self.holes.len());
                 let mut hole = self.top_index.wrapping_add(1);
                 while tickets > 0 && hole != incoming_index {
                     self.holes.insert(hole);
                     hole = hole.wrapping_add(1);
                     tickets = tickets.saturating_sub(1);
-                }
-                while self.holes.len() > self.max_holes {
-                    self.holes.pop_front();
                 }
             }
 
