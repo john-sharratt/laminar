@@ -14,7 +14,7 @@ use crate::{
         STANDARD_HEADER_SIZE,
     },
     packet::{
-        ConnectionId, DeliveryGuarantee, FragmentNumber, IncomingPackets, OrderingGuarantee, OutgoingPacketBuilder, OutgoingPackets, Packet, PacketInfo, PacketReader, PacketType, SequenceNumber
+        header::AckedPacketHeader, ConnectionId, DeliveryGuarantee, FragmentNumber, IncomingPackets, OrderingGuarantee, OutgoingPacketBuilder, OutgoingPackets, Packet, PacketInfo, PacketReader, PacketType, SequenceNumber
     },
 };
 
@@ -348,6 +348,104 @@ impl<T: MomentInTime> VirtualConnection<T> {
                 ));
             }
             DeliveryGuarantee::Reliable => {
+                let process_acked_packet =
+                    |this: &mut VirtualConnection<T>,
+                     packet_reader: &mut PacketReader<'_>,
+                     packet_type: PacketType,
+                     payload: Box<[u8]>,
+                     acked_header: AckedPacketHeader| -> Result<IncomingPackets>
+                    {
+                        // TODO: implement congestion control.
+                        // this.congestion_handler
+                        //     .process_incoming(acked_header.sequence());
+
+                        this.acknowledge_handler.process_incoming(
+                            acked_header.sequence(),
+                            acked_header.ack_seq(),
+                            acked_header.ack_field(),
+                        );
+
+                        if let OrderingGuarantee::Sequenced(_) = header.ordering_guarantee() {
+                            let arranging_header = packet_reader
+                                .read_arranging_header(STANDARD_HEADER_SIZE + ACKED_PACKET_HEADER)?;
+
+                            let stream = this
+                                .sequencing_system
+                                .get_or_create_stream(arranging_header.stream_id());
+
+                            if let Some(packet) =
+                                stream.arrange(arranging_header.arranging_id(), payload)
+                            {
+                                return Ok(IncomingPackets::one(
+                                    Packet::new(
+                                        this.remote_address.clone(),
+                                        packet,
+                                        header.delivery_guarantee(),
+                                        OrderingGuarantee::Sequenced(Some(
+                                            arranging_header.stream_id(),
+                                        )),
+                                        None,
+                                        None,
+                                        "received packet",
+                                    ),
+                                    packet_type,
+                                    header.connection_id(),
+                                ));
+                            }
+                        } else if let OrderingGuarantee::Ordered(_id) = header.ordering_guarantee() {
+                            let arranging_header = packet_reader
+                                .read_arranging_header(STANDARD_HEADER_SIZE + ACKED_PACKET_HEADER)?;
+
+                            let stream = this
+                                .ordering_system
+                                .get_or_create_stream(arranging_header.stream_id());
+                            let address = this.remote_address.clone();
+                            return Ok(IncomingPackets::many(
+                                stream
+                                    .arrange(
+                                        arranging_header.arranging_id(),
+                                        (payload, header.packet_type()),
+                                    )
+                                    .into_iter()
+                                    .chain(stream.iter_mut())
+                                    .map(|(packet, packet_type)| {
+                                        (
+                                            Packet::new(
+                                                address.clone(),
+                                                packet,
+                                                header.delivery_guarantee(),
+                                                OrderingGuarantee::Ordered(Some(
+                                                    arranging_header.stream_id(),
+                                                )),
+                                                None,
+                                                None,
+                                                "received packet",
+                                            ),
+                                            packet_type,
+                                            header.connection_id(),
+                                        )
+                                    })
+                                    .collect(),
+                            ));
+                        } else {
+                            return Ok(IncomingPackets::one(
+                                Packet::new(
+                                    this.remote_address.clone(),
+                                    payload,
+                                    header.delivery_guarantee(),
+                                    header.ordering_guarantee(),
+                                    None,
+                                    None,
+                                    "received packet",
+                                ),
+                                packet_type,
+                                header.connection_id(),
+                            ));
+                        }
+
+                        Ok(IncomingPackets::zero())
+                    };
+
                 if header.is_fragment() {
                     if let Ok((fragment_header, acked_header)) = packet_reader.read_fragment() {
                         let payload = packet_reader.read_payload();
@@ -358,29 +456,8 @@ impl<T: MomentInTime> VirtualConnection<T> {
                             acked_header,
                         ) {
                             Ok(Some((payload, acked_header))) => {
-                                // TODO: implement congestion control.
-                                // self.congestion_handler
-                                //     .process_incoming(acked_header.sequence());
-
-                                self.acknowledge_handler.process_incoming(
-                                    acked_header.sequence(),
-                                    acked_header.ack_seq(),
-                                    acked_header.ack_field(),
-                                );
-
-                                return Ok(IncomingPackets::one(
-                                    Packet::new(
-                                        self.remote_address.clone(),
-                                        payload.into_boxed_slice(),
-                                        header.delivery_guarantee(),
-                                        header.ordering_guarantee(),
-                                        None,
-                                        None,
-                                        "received packet",
-                                    ),
-                                    PacketType::Packet, // change from Fragment to Packet type, it only matters when assembling/dissasembling packet header.
-                                    header.connection_id(),
-                                ));
+                                let payload = payload.into_boxed_slice();
+                                return process_acked_packet(self, &mut packet_reader, PacketType::Packet, payload, acked_header);
                             }
                             Ok(None) => return Ok(IncomingPackets::zero()),
                             Err(e) => return Err(e),
@@ -388,99 +465,9 @@ impl<T: MomentInTime> VirtualConnection<T> {
                     }
                 } else {
                     let acked_header = packet_reader.read_acknowledge_header()?;
-
-                    // TODO: implement congestion control.
-                    // self.congestion_handler
-                    //     .process_incoming(acked_header.sequence());
-
-                    self.acknowledge_handler.process_incoming(
-                        acked_header.sequence(),
-                        acked_header.ack_seq(),
-                        acked_header.ack_field(),
-                    );
-
-                    if let OrderingGuarantee::Sequenced(_) = header.ordering_guarantee() {
-                        let arranging_header = packet_reader
-                            .read_arranging_header(STANDARD_HEADER_SIZE + ACKED_PACKET_HEADER)?;
-
-                        let payload = packet_reader.read_payload();
-
-                        let stream = self
-                            .sequencing_system
-                            .get_or_create_stream(arranging_header.stream_id());
-
-                        if let Some(packet) =
-                            stream.arrange(arranging_header.arranging_id(), payload)
-                        {
-                            return Ok(IncomingPackets::one(
-                                Packet::new(
-                                    self.remote_address.clone(),
-                                    packet,
-                                    header.delivery_guarantee(),
-                                    OrderingGuarantee::Sequenced(Some(
-                                        arranging_header.stream_id(),
-                                    )),
-                                    None,
-                                    None,
-                                    "received packet",
-                                ),
-                                header.packet_type(),
-                                header.connection_id(),
-                            ));
-                        }
-                    } else if let OrderingGuarantee::Ordered(_id) = header.ordering_guarantee() {
-                        let arranging_header = packet_reader
-                            .read_arranging_header(STANDARD_HEADER_SIZE + ACKED_PACKET_HEADER)?;
-
-                        let payload = packet_reader.read_payload();
-
-                        let stream = self
-                            .ordering_system
-                            .get_or_create_stream(arranging_header.stream_id());
-                        let address = self.remote_address.clone();
-                        return Ok(IncomingPackets::many(
-                            stream
-                                .arrange(
-                                    arranging_header.arranging_id(),
-                                    (payload, header.packet_type()),
-                                )
-                                .into_iter()
-                                .chain(stream.iter_mut())
-                                .map(|(packet, packet_type)| {
-                                    (
-                                        Packet::new(
-                                            address.clone(),
-                                            packet,
-                                            header.delivery_guarantee(),
-                                            OrderingGuarantee::Ordered(Some(
-                                                arranging_header.stream_id(),
-                                            )),
-                                            None,
-                                            None,
-                                            "received packet",
-                                        ),
-                                        packet_type,
-                                        header.connection_id(),
-                                    )
-                                })
-                                .collect(),
-                        ));
-                    } else {
-                        let payload = packet_reader.read_payload();
-                        return Ok(IncomingPackets::one(
-                            Packet::new(
-                                self.remote_address.clone(),
-                                payload,
-                                header.delivery_guarantee(),
-                                header.ordering_guarantee(),
-                                None,
-                                None,
-                                "received packet",
-                            ),
-                            header.packet_type(),
-                            header.connection_id(),
-                        ));
-                    }
+                    let packet_type = header.packet_type();
+                    let payload = packet_reader.read_payload();
+                    return process_acked_packet(self, &mut packet_reader, packet_type, payload, acked_header);
                 }
             }
         }
