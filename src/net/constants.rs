@@ -22,8 +22,6 @@ pub const MAX_FRAGMENTS_DEFAULT: FragmentNumber = 16;
 pub const FRAGMENT_SIZE_DEFAULT: usize = 1024;
 /// Defaultamount of time to resend a packet if no acknowledgment has been received.
 pub const DEFAULT_RESEND_AFTER: Duration = Duration::from_millis(500);
-/// Defaultamount of time to resend a packet if no acknowledgment has been received.
-pub const DEFAULT_FAST_RESEND_AFTER: Duration = Duration::from_millis(100);
 /// Maximum transmission unit of the payload.
 ///
 /// Derived from ethernet_mtu - ipv6_header_size - udp_header_size - packet header size

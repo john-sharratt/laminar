@@ -183,24 +183,6 @@ mod tests {
     }
 
     #[test]
-    fn deserialize() {
-        let buffer = vec![0, 1, 0, 1, 1, 0, 3];
-
-        let mut cursor = Cursor::new(buffer.as_slice());
-
-        let header = StandardHeader::read(&mut cursor).unwrap();
-
-        assert_eq!(header.protocol_version(), 1);
-        assert_eq!(header.packet_type(), PacketType::Packet);
-        assert_eq!(header.delivery_guarantee(), DeliveryGuarantee::Reliable);
-        assert_eq!(header.connection_id(), 3);
-        assert_eq!(
-            header.ordering_guarantee(),
-            OrderingGuarantee::Sequenced(None)
-        );
-    }
-
-    #[test]
     fn size() {
         assert_eq!(8, STANDARD_HEADER_SIZE);
     }

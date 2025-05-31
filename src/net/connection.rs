@@ -15,7 +15,7 @@ pub trait ConnectionMessenger<ReceiveEvent: Debug> {
     fn send_packet(&self, address: &SockAddr, payload: &[u8]) -> std::io::Result<()>;
     
     /// Sends a packet with multiple buffers.
-    fn send_packet_vectored(&mut self, address: &SockAddr, bufs: &[IoSlice<'_>]) -> std::io::Result<()>;
+    fn send_packet_vectored(&self, address: &SockAddr, bufs: &[IoSlice<'_>]) -> std::io::Result<()>;
 }
 
 /// Returns an address of an event.

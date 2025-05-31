@@ -203,7 +203,7 @@ mod tests {
             )
             .build();
 
-        let expected: Vec<u8> = [vec![0, 1, 1], test_payload()].concat().to_vec();
+        let expected: Vec<u8> = [vec![0, 0, 0, 1, 1, 0], test_payload()].concat().to_vec();
 
         assert_eq!(
             outgoing.contents()[2..outgoing.contents().len()].to_vec(),

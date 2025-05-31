@@ -32,7 +32,7 @@
 pub use self::config::Config;
 pub use self::error::{ErrorKind, Result};
 pub use self::net::{
-    constants::PROTOCOL_VERSION, debug_set_packet_delay, debug_set_packet_loss, debug_get_packet_delay, debug_get_packet_loss, Connection,
+    constants::PROTOCOL_VERSION, debug_set_packet_delay, debug_set_packet_loss, debug_get_packet_delay, debug_get_packet_loss, debug_get_packet_recv, reset_debug_packet_recv, debug_get_packet_send, reset_debug_packet_send, Connection,
     ConnectionManager, ConnectionMessenger, ConnectionSender, DatagramSocket,
     DatagramSocketReceiver, DatagramSocketSender, LinkConditioner, MomentInTime, Socket,
     SocketEvent, SocketRx, SocketTx, VirtualConnection,

@@ -113,8 +113,9 @@ impl<'s> PacketReader<'s> {
 
 #[cfg(test)]
 mod tests {
-    use crate::packet::header::{AckedPacketHeader, HeaderReader, StandardHeader};
+    use crate::packet::header::{AckedPacketHeader, HeaderReader, HeaderWriter, StandardHeader};
     use crate::packet::{DeliveryGuarantee, FragmentNumber, OrderingGuarantee, PacketReader, PacketType, SequenceNumber, StreamNumber};
+    use crate::PROTOCOL_VERSION;
 
     #[test]
     fn can_read_bytes() {
@@ -127,14 +128,19 @@ mod tests {
 
     #[test]
     fn assure_read_standard_header() {
-        // standard header
-        let reliable_ordered_payload: Vec<u8> = vec![vec![0, 1, 0, 1, 2]].concat();
+        let mut reliable_ordered_payload = Vec::new();
+        StandardHeader::new(
+            DeliveryGuarantee::Reliable,
+            OrderingGuarantee::Ordered(None),
+            PacketType::Packet,
+            0,
+        ).write(&mut reliable_ordered_payload).unwrap();
 
         let mut reader = PacketReader::new(reliable_ordered_payload.as_slice());
 
         let standard_header = reader.read_standard_header().unwrap();
 
-        assert_eq!(standard_header.protocol_version(), 1);
+        assert_eq!(standard_header.protocol_version(), PROTOCOL_VERSION);
         assert_eq!(standard_header.packet_type(), PacketType::Packet);
         assert_eq!(
             standard_header.delivery_guarantee(),
@@ -148,10 +154,18 @@ mod tests {
 
     #[test]
     fn assure_read_acknowledgment_header() {
+        let mut standard_header = Vec::new();
+        StandardHeader::new(
+            DeliveryGuarantee::Reliable,
+            OrderingGuarantee::None,
+            PacketType::Packet,
+            0,
+        ).write(&mut standard_header).unwrap();
+
         // standard header, acked header
         let reliable_ordered_payload: Vec<u8> =
             vec![
-                vec![0, 0, 0, 1, 0],
+                standard_header,
                 (1 as SequenceNumber).to_be_bytes().to_vec(),
                 (2 as SequenceNumber).to_be_bytes().to_vec(),
                 vec![0, 0, 0, 3]
@@ -168,9 +182,17 @@ mod tests {
 
     #[test]
     fn assure_read_fragment_header() {
+        let mut standard_header = Vec::new();
+        StandardHeader::new(
+            DeliveryGuarantee::Reliable,
+            OrderingGuarantee::Ordered(None),
+            PacketType::Packet,
+            0,
+        ).write(&mut standard_header).unwrap();
+        
         // standard header, acked header, arranging header
         let reliable_ordered_payload: Vec<u8> = vec![
-            vec![0, 1, 0, 1, 2],
+            standard_header,
             (1 as SequenceNumber).to_be_bytes().to_vec(),
             (0 as FragmentNumber).to_be_bytes().to_vec(),
             (3 as FragmentNumber).to_be_bytes().to_vec(),
@@ -185,7 +207,7 @@ mod tests {
         let standard_header = reader.read_standard_header().unwrap();
         let (fragment_header, acked_header) = reader.read_fragment().unwrap();
 
-        assert_eq!(standard_header.protocol_version(), 1);
+        assert_eq!(standard_header.protocol_version(), PROTOCOL_VERSION);
         assert_eq!(standard_header.packet_type(), PacketType::Packet);
         assert_eq!(
             standard_header.delivery_guarantee(),
@@ -207,9 +229,17 @@ mod tests {
 
     #[test]
     fn assure_read_unreliable_sequenced_header() {
+        let mut standard_header = Vec::new();
+        StandardHeader::new(
+            DeliveryGuarantee::Reliable,
+            OrderingGuarantee::Ordered(None),
+            PacketType::Packet,
+            0,
+        ).write(&mut standard_header).unwrap();
+
         // standard header, arranging header
         let reliable_ordered_payload: Vec<u8> = vec![
-            vec![0, 1, 0, 1, 2],
+            standard_header,
             (1 as SequenceNumber).to_be_bytes().to_vec(),
             (2 as StreamNumber).to_be_bytes().to_vec()
         ].concat();
@@ -225,10 +255,18 @@ mod tests {
     }
 
     #[test]
-    fn assure_read_reliable_ordered_header() {
+    fn assure_read_reliable_ordered_header() {        
+        let mut standard_header = Vec::new();
+        StandardHeader::new(
+            DeliveryGuarantee::Reliable,
+            OrderingGuarantee::Ordered(None),
+            PacketType::Packet,
+            0,
+        ).write(&mut standard_header).unwrap();
+
         // standard header, acked header, arranging header
         let reliable_ordered_payload: Vec<u8> = vec![
-            vec![0, 1, 0, 1, 2],
+            standard_header,
             (1 as SequenceNumber).to_be_bytes().to_vec(),
             (2 as SequenceNumber).to_be_bytes().to_vec(),
             vec![0, 0, 0, 3],
@@ -244,7 +282,7 @@ mod tests {
             .read_arranging_header(StandardHeader::size() + AckedPacketHeader::size())
             .unwrap();
 
-        assert_eq!(standard_header.protocol_version(), 1);
+        assert_eq!(standard_header.protocol_version(), PROTOCOL_VERSION);
         assert_eq!(standard_header.packet_type(), PacketType::Packet);
         assert_eq!(
             standard_header.delivery_guarantee(),
@@ -265,10 +303,18 @@ mod tests {
 
     #[test]
     fn assure_read_reliable_unordered_header() {
+        let mut standard_header = Vec::new();
+        StandardHeader::new(
+            DeliveryGuarantee::Reliable,
+            OrderingGuarantee::Ordered(None),
+            PacketType::Packet,
+            0,
+        ).write(&mut standard_header).unwrap();
+
         // standard header, acked header, arranging header
         let reliable_ordered_payload: Vec<u8> =
             vec![
-                vec![0, 1, 0, 1, 2],
+                standard_header,
                 (1 as SequenceNumber).to_be_bytes().to_vec(),
                 (2 as SequenceNumber).to_be_bytes().to_vec(),
                 vec![0, 0, 0, 3]
@@ -278,7 +324,7 @@ mod tests {
         let standard_header = reader.read_standard_header().unwrap();
         let acked_header = reader.read_acknowledge_header().unwrap();
 
-        assert_eq!(standard_header.protocol_version(), 1);
+        assert_eq!(standard_header.protocol_version(), PROTOCOL_VERSION);
         assert_eq!(standard_header.packet_type(), PacketType::Packet);
         assert_eq!(
             standard_header.delivery_guarantee(),

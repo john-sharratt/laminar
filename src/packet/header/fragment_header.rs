@@ -46,7 +46,7 @@ impl HeaderWriter for FragmentHeader {
     type Output = Result<()>;
 
     fn write(&self, buffer: &mut Vec<u8>) -> Self::Output {
-        buffer.write_u32::<BigEndian>(self.sequence)?;
+        buffer.write_u16::<BigEndian>(self.sequence)?;
         buffer.write_u8(self.id)?;
         buffer.write_u8(self.num_fragments)?;
 
@@ -58,7 +58,7 @@ impl HeaderReader for FragmentHeader {
     type Header = Result<FragmentHeader>;
 
     fn read(rdr: &mut Cursor<&[u8]>) -> Self::Header {
-        let sequence = rdr.read_u32::<BigEndian>()?;
+        let sequence = rdr.read_u16::<BigEndian>()?;
         let id = rdr.read_u8()?;
         let num_fragments = rdr.read_u8()?;
 

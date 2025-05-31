@@ -104,7 +104,7 @@ impl DatagramSocketSender for SocketWithConditioner {
     }
 
     fn send_packet_vectored(
-        &mut self,
+        &self,
         addr: &SockAddr,
         bufs: &[IoSlice<'_>],
     ) -> std::io::Result<usize> {
@@ -157,12 +157,12 @@ impl DatagramSocketSender for SocketWithConditionerTx {
 
     // Determinate whether packet will be sent or not based on `LinkConditioner` if enabled.
     fn send_packet_vectored(
-        &mut self,
+        &self,
         addr: &SockAddr,
         bufs: &[IoSlice<'_>],
     ) -> std::io::Result<usize> {
         if cfg!(feature = "tester") {
-            if let Some(ref mut link) = &mut self.link_conditioner {
+            if let Some(ref link) = &self.link_conditioner {
                 if !link.should_send() {
                     return Ok(0);
                 }
@@ -212,7 +212,7 @@ impl DatagramSocketSender for Box<dyn DatagramSocketSender> {
     }
 
     fn send_packet_vectored(
-        &mut self,
+        &self,
         addr: &SockAddr,
         bufs: &[IoSlice<'_>],
     ) -> std::io::Result<usize> {

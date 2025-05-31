@@ -22,6 +22,8 @@ use crate::{
     net::{Connection, ConnectionEventAddress, ConnectionMessenger},
 };
 
+static DEBUG_PACKET_SEND: AtomicU64 = AtomicU64::new(0);
+static DEBUG_PACKET_RECV: AtomicU64 = AtomicU64::new(0);
 static DEBUG_PACKET_DELAY: AtomicU64 = AtomicU64::new(0);
 static DEBUG_PACKET_LOSS: AtomicU64 = AtomicU64::new(0);
 
@@ -50,7 +52,7 @@ pub trait DatagramSocketSender: Debug {
 
     /// Sends a single packet made up of multiple buffers to the socket.
     fn send_packet_vectored(
-        &mut self,
+        &self,
         addr: &SockAddr,
         bufs: &[IoSlice<'_>],
     ) -> std::io::Result<usize>;
@@ -118,15 +120,17 @@ impl<ReceiveEvent: Debug> ConnectionMessenger<ReceiveEvent>
     }
 
     fn send_packet(&self, address: &SockAddr, payload: &[u8]) -> std::io::Result<()> {
+        DEBUG_PACKET_SEND.fetch_add(1, Ordering::SeqCst);
         self.socket.send_packet(address, payload)?;
         Ok(())
     }
 
     fn send_packet_vectored(
-        &mut self,
+        &self,
         address: &SockAddr,
         bufs: &[IoSlice<'_>],
     ) -> std::io::Result<()> {
+        DEBUG_PACKET_SEND.fetch_add(1, Ordering::SeqCst);
         self.socket.send_packet_vectored(address, bufs)?;
         Ok(())
     }
@@ -151,6 +155,26 @@ pub fn debug_set_packet_loss(packet_loss: f32) {
 /// Gets the current set packet loss value.
 pub fn debug_get_packet_loss() -> f32 {
     DEBUG_PACKET_LOSS.load(Ordering::Relaxed) as f32 / 100_000.0
+}
+
+/// Gets the number of packets that were received
+pub fn debug_get_packet_recv() -> u64 {
+    DEBUG_PACKET_RECV.load(Ordering::SeqCst)
+}
+
+/// Resets the packet receive counter
+pub fn reset_debug_packet_recv() {
+    DEBUG_PACKET_RECV.store(0, Ordering::SeqCst);
+}
+
+/// Gets the number of packets that were received
+pub fn debug_get_packet_send() -> u64 {
+    DEBUG_PACKET_SEND.load(Ordering::SeqCst)
+}
+
+/// Resets the packet send counter
+pub fn reset_debug_packet_send() {
+    DEBUG_PACKET_SEND.store(0, Ordering::SeqCst);
 }
 
 /// Implements a concept of connections on top of datagram socket.
@@ -212,6 +236,8 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
 
         // function used to process packets
         let mut process_packet = |payload: &[u8], address: SockAddr| {
+            DEBUG_PACKET_RECV.fetch_add(1, Ordering::SeqCst);
+
             let mut connections = self.connections.lock().unwrap();
             if let Some(conn) = connections.get_mut(&address) {
                 let was_est = conn.is_established();
@@ -257,7 +283,10 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
         // first we pull all newly arrived packets and handle them
         let started = now;
         let mut n_packets = 0;
-        while TConnection::Instant::now().duration_since(started) < loop_duration {
+        let mut n_loops = 0;
+        while TConnection::Instant::now().duration_since(started) <= loop_duration || n_loops < 100 {
+            n_loops += 1;
+
             // Update the read timeout to match
             let read_timeout = loop_duration.saturating_sub(TConnection::Instant::now().duration_since(started));
             let read_timeout = Some(read_timeout);
@@ -516,7 +545,7 @@ mod tests {
         time::Duration,
     };
 
-    use crate::test_utils::*;
+    use crate::{debug_get_packet_send, net::connection_manager::{debug_get_packet_recv, reset_debug_packet_recv}, reset_debug_packet_send, test_utils::*};
     use crate::{Config, Packet, SocketEvent};
 
     /// The socket address of where the server is located.
@@ -821,6 +850,9 @@ mod tests {
 
     #[test]
     fn more_than_65536_sequenced_packets() {
+        reset_debug_packet_recv();
+        reset_debug_packet_send();
+        
         let (mut server, mut client, _) = create_server_client_network();
         // acknowledge the client
         server
@@ -842,10 +874,13 @@ mod tests {
             server.manual_poll(time);
         }
 
+        let mut connect = 0;
         let mut cnt = 0;
         while let Some(message) = server.recv() {
             match message {
-                SocketEvent::Connect(_) => {}
+                SocketEvent::Connect(_) => {
+                    connect += 1;
+                }
                 SocketEvent::Packet(_) => {
                     cnt += 1;
                 }
@@ -854,6 +889,10 @@ mod tests {
                 }
             }
         }
+
+        assert!(debug_get_packet_send() >= 65536 + 100 + 1);
+        assert!(debug_get_packet_recv() >= 65536 + 100 + 1);
+        assert_eq![1, connect];
         assert_eq![65536 + 100, cnt];
     }
 

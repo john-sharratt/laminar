@@ -57,7 +57,6 @@ impl<T: MomentInTime> VirtualConnection<T> {
             sequencing_system: SequencingSystem::new(config.allow_n_seqeuenced_holes),
             acknowledge_handler: AcknowledgmentHandler::new(
                 config.resend_after,
-                config.fast_resend_after,
             ),
             fragmentation: Fragmentation::new(config),
             config: config.to_owned(),
@@ -516,7 +515,7 @@ mod tests {
     use crate::net::constants;
     use crate::packet::header::{AckedPacketHeader, ArrangingHeader, HeaderWriter, StandardHeader};
     use crate::packet::{
-        DeliveryGuarantee, EnumConverter, FragmentNumber, OrderingGuarantee, Packet, PacketInfo,
+        DeliveryGuarantee, FragmentNumber, OrderingGuarantee, Packet, PacketInfo,
         PacketType, SequenceNumber,
     };
     use crate::PROTOCOL_VERSION;
@@ -569,13 +568,16 @@ mod tests {
             .write_u16::<BigEndian>(PROTOCOL_VERSION)
             .unwrap();
 
-        let standard_header = [
-            protocol_version,
-            PacketType::Fragment.to_u8().to_be_bytes().to_vec(),
-            vec![1, 2],
-        ]
-        .concat();
-
+        let mut standard_header = Vec::new();
+        StandardHeader::new(
+            DeliveryGuarantee::Reliable,
+            OrderingGuarantee::Ordered(None),
+            PacketType::Fragment,
+            0
+        )
+            .write(&mut standard_header)
+            .unwrap();
+        
         let acked_header = vec![
             (0 as SequenceNumber).to_be_bytes().to_vec(),
             (0 as FragmentNumber).to_be_bytes().to_vec(),
@@ -604,13 +606,15 @@ mod tests {
         ]
         .concat();
 
+        let now = Instant::now();
+
         let mut connection = create_virtual_connection();
         let packet = connection
             .process_incoming(
                 [standard_header.as_slice(), acked_header.as_slice()]
                     .concat()
                     .as_slice(),
-                Instant::now(),
+                now,
             )
             .unwrap()
             .into_iter()
@@ -625,7 +629,7 @@ mod tests {
                 ]
                 .concat()
                 .as_slice(),
-                Instant::now(),
+                now,
             )
             .unwrap()
             .into_iter()
@@ -640,7 +644,7 @@ mod tests {
                 ]
                 .concat()
                 .as_slice(),
-                Instant::now(),
+                now,
             )
             .unwrap()
             .into_iter()
@@ -655,7 +659,7 @@ mod tests {
                 ]
                 .concat()
                 .as_slice(),
-                Instant::now(),
+                now,
             )
             .unwrap()
             .into_iter()
@@ -942,12 +946,15 @@ mod tests {
 
     #[test]
     fn ensure_input_header_data_does_not_access_out_of_bounds() {
-        let mut protocol_version = Vec::new();
-        protocol_version
-            .write_u16::<BigEndian>(PROTOCOL_VERSION)
+        let mut standard_header = Vec::new();
+        StandardHeader::new(
+            DeliveryGuarantee::Reliable,
+            OrderingGuarantee::Sequenced(None),
+            PacketType::Fragment,
+            0
+        )
+            .write(&mut standard_header)
             .unwrap();
-
-        let standard_header = [protocol_version, vec![1, 1, 2]].concat();
 
         let acked_header = vec![
             (0 as SequenceNumber).to_be_bytes().to_vec(),

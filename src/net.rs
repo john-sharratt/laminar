@@ -3,7 +3,7 @@
 
 pub use self::connection::{Connection, ConnectionEventAddress, ConnectionMessenger, MomentInTime};
 pub use self::connection_manager::{
-    debug_set_packet_delay, debug_set_packet_loss, debug_get_packet_delay, debug_get_packet_loss, ConnectionManager, ConnectionSender,
+    debug_set_packet_delay, debug_set_packet_loss, debug_get_packet_delay, debug_get_packet_loss, debug_get_packet_recv, reset_debug_packet_recv, debug_get_packet_send, reset_debug_packet_send, ConnectionManager, ConnectionSender,
     DatagramSocket, DatagramSocketReceiver, DatagramSocketSender,
 };
 pub use self::events::SocketEvent;
