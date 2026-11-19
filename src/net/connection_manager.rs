@@ -397,12 +397,12 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
     }
 
     /// Returns socket reference.
-    pub fn socket_rx(&self) -> &(dyn DatagramSocketReceiver) {
+    pub fn socket_rx(&self) -> &dyn DatagramSocketReceiver {
         self.rx.deref()
     }
 
     /// Returns socket reference.
-    pub fn socket_tx(&self) -> &(dyn DatagramSocketSender) {
+    pub fn socket_tx(&self) -> &dyn DatagramSocketSender {
         self.tx.socket()
     }
 
@@ -422,13 +422,13 @@ impl<TConnection: Connection> ConnectionManager<TConnection> {
 
     /// Returns socket mutable reference.
     #[allow(dead_code)]
-    pub fn socket_rx_mut(&mut self) -> &mut (dyn DatagramSocketReceiver) {
+    pub fn socket_rx_mut(&mut self) -> &mut dyn DatagramSocketReceiver {
         self.rx.deref_mut()
     }
 
     /// Returns socket mutable reference.
     #[allow(dead_code)]
-    pub fn socket_tx_mut(&mut self) -> &mut (dyn DatagramSocketSender) {
+    pub fn socket_tx_mut(&mut self) -> &mut dyn DatagramSocketSender {
         self.tx.socket_mut()
     }
 
@@ -518,13 +518,13 @@ impl<TConnection: Connection> ConnectionSender<TConnection> {
     }
 
     /// Returns socket reference.
-    pub fn socket(&self) -> &(dyn DatagramSocketSender) {
+    pub fn socket(&self) -> &dyn DatagramSocketSender {
         self.tx.socket.deref()
     }
 
     /// Returns socket mutable reference.
     #[allow(dead_code)]
-    pub fn socket_mut(&mut self) -> &mut (dyn DatagramSocketSender) {
+    pub fn socket_mut(&mut self) -> &mut dyn DatagramSocketSender {
         self.tx.socket.deref_mut()
     }
 

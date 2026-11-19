@@ -1,9 +1,6 @@
-use std::io::Write;
-
 use crate::{
     config::Config,
     error::{FragmentErrorKind, Result},
-    net::constants::FRAGMENT_HEADER_SIZE,
     packet::header::{AckedPacketHeader, FragmentHeader},
     sequence_buffer::{ReassemblyData, SequenceBuffer},
 };
@@ -11,7 +8,6 @@ use crate::{
 /// Manages fragmentation of packets.
 pub struct Fragmentation {
     fragments: SequenceBuffer<ReassemblyData>,
-    config: Config,
 }
 
 impl Fragmentation {
@@ -19,7 +15,6 @@ impl Fragmentation {
     pub fn new(config: &Config) -> Fragmentation {
         Fragmentation {
             fragments: SequenceBuffer::with_capacity(config.fragment_reassembly_buffer_size),
-            config: config.clone(),
         }
     }
 
@@ -93,48 +88,33 @@ impl Fragmentation {
         Ok(fragments)
     }
 
-    /// Reads fragment data and return the complete packet when all fragments are received.
+    /// Reads fragment data and returns the complete packet when all its fragments are received.
+    /// Each fragment's payload is kept by its id, so fragments put the packet together in order
+    /// whatever order they arrive in.
     pub fn handle_fragment(
         &mut self,
         fragment_header: FragmentHeader,
         fragment_payload: &[u8],
         acked_header: Option<AckedPacketHeader>,
     ) -> Result<Option<(Vec<u8>, AckedPacketHeader)>> {
-        // read fragment packet
-
+        if fragment_header.id() >= fragment_header.fragment_count() {
+            return Err(FragmentErrorKind::TooManyFragments.into());
+        }
         self.create_fragment_if_not_exists(fragment_header);
 
-        let num_fragments_received;
-        let num_fragments_total;
-        let sequence;
-        let total_buffer;
-
-        {
+        let complete = {
             // get entry of previous received fragments
             let reassembly_data = match self.fragments.get_mut(fragment_header.sequence()) {
                 Some(val) => val,
                 None => return Err(FragmentErrorKind::CouldNotFindFragmentById.into()),
             };
 
-            // got the data
-            if reassembly_data.num_fragments_total != fragment_header.fragment_count() {
-                return Err(FragmentErrorKind::FragmentWithUnevenNumberOfFragments.into());
-            }
-
-            if usize::from(fragment_header.id()) >= reassembly_data.fragments_received.len() {
-                return Err(FragmentErrorKind::TooManyFragments.into());
-            }
-
-            if reassembly_data.fragments_received[usize::from(fragment_header.id())] {
+            let part = &mut reassembly_data.parts[usize::from(fragment_header.id())];
+            if part.is_some() {
                 return Err(FragmentErrorKind::AlreadyProcessedFragment.into());
             }
-
-            // increase number of received fragments and set the specific fragment to received
+            *part = Some(fragment_payload.to_vec());
             reassembly_data.num_fragments_received += 1;
-            reassembly_data.fragments_received[usize::from(fragment_header.id())] = true;
-
-            // add the payload from the fragment to the buffer whe have in cache
-            reassembly_data.buffer.write_all(fragment_payload)?;
 
             if let Some(acked_header) = acked_header {
                 if reassembly_data.acked_header.is_none() {
@@ -144,40 +124,35 @@ impl Fragmentation {
                 }
             }
 
-            num_fragments_received = reassembly_data.num_fragments_received;
-            num_fragments_total = reassembly_data.num_fragments_total;
-            sequence = reassembly_data.sequence;
-            total_buffer = reassembly_data.buffer.clone();
-        }
+            reassembly_data.num_fragments_received == reassembly_data.num_fragments_total
+        };
 
-        // if we received all fragments then remove entry and return the total received bytes.
-        if num_fragments_received == num_fragments_total {
-            if let Some(mut reassembly_data) = self.fragments.remove(sequence) {
-                if reassembly_data.acked_header.is_none() {
-                    return Err(FragmentErrorKind::MissingAckHeader.into());
-                }
-
-                let acked_header = reassembly_data.acked_header.take().unwrap();
-                return Ok(Some((total_buffer, acked_header)));
-            } else {
+        // if we received all fragments then remove entry and return the packet they make.
+        if complete {
+            let Some(mut reassembly_data) = self.fragments.remove(fragment_header.sequence()) else {
                 return Err(FragmentErrorKind::CouldNotFindFragmentById.into());
-            }
+            };
+            let Some(acked_header) = reassembly_data.acked_header.take() else {
+                return Err(FragmentErrorKind::MissingAckHeader.into());
+            };
+            return Ok(Some((reassembly_data.assembled(), acked_header)));
         }
 
         Ok(None)
     }
 
-    /// If fragment does not exist we need to insert a new entry.
+    /// Makes an entry for the fragment's packet if there is none. An entry of the same sequence
+    /// with another count of fragments is what is left of an older packet that never completed:
+    /// it is replaced.
     fn create_fragment_if_not_exists(&mut self, fragment_header: FragmentHeader) {
-        if !self.fragments.exists(fragment_header.sequence()) {
-            let reassembly_data = ReassemblyData::new(
-                fragment_header.sequence(),
-                fragment_header.fragment_count(),
-                usize::from(FRAGMENT_HEADER_SIZE) + self.config.fragment_size,
-            );
-
-            self.fragments
-                .insert(fragment_header.sequence(), reassembly_data);
+        let sequence = fragment_header.sequence();
+        let stale = self
+            .fragments
+            .get(sequence)
+            .is_some_and(|data| data.num_fragments_total != fragment_header.fragment_count());
+        if stale || !self.fragments.exists(sequence) {
+            let reassembly_data = ReassemblyData::new(fragment_header.fragment_count());
+            self.fragments.insert(sequence, reassembly_data);
         }
     }
 }
@@ -185,6 +160,10 @@ impl Fragmentation {
 #[cfg(test)]
 mod test {
     use super::Fragmentation;
+    use crate::{
+        config::Config,
+        packet::header::{AckedPacketHeader, FragmentHeader},
+    };
 
     #[test]
     pub fn expect_right_number_of_fragments() {
@@ -193,5 +172,74 @@ mod test {
 
         assert_eq!(fragment_number, 4);
         assert_eq!(fragment_number1, 1);
+    }
+
+    fn ack() -> AckedPacketHeader {
+        AckedPacketHeader::new(7, 0, 0)
+    }
+
+    /// Feeds the fragments of `packet`, cut `size` bytes long, in the order of `ids`, the
+    /// first fragment carrying the ack header as a sender's does; returns what completes.
+    fn feed(packet: &[u8], size: usize, ids: &[usize]) -> Vec<Vec<u8>> {
+        let config = Config {
+            fragment_size: size,
+            max_fragments: 18,
+            ..Config::default()
+        };
+        let mut fragmentation = Fragmentation::new(&config);
+        let pieces = Fragmentation::spit_into_fragments(packet, &config).unwrap();
+        let count = pieces.len() as u8;
+        let mut completed = Vec::new();
+        for &id in ids {
+            let header = FragmentHeader::new(7, id as u8, count);
+            let acked = (id == 0).then(ack);
+            let done = fragmentation.handle_fragment(header, pieces[id], acked).unwrap();
+            completed.extend(done.map(|(bytes, _)| bytes));
+        }
+        completed
+    }
+
+    #[test]
+    fn fragments_in_order_put_the_packet_back_together() {
+        let packet: Vec<u8> = (0..25u8).collect();
+        assert_eq!(feed(&packet, 10, &[0, 1, 2]), [packet]);
+    }
+
+    #[test]
+    fn fragments_out_of_order_put_the_packet_back_together_in_order() {
+        let packet: Vec<u8> = (0..25u8).collect();
+        assert_eq!(feed(&packet, 10, &[1, 0, 2]), [packet.clone()]);
+        assert_eq!(feed(&packet, 10, &[2, 1, 0]), [packet]);
+    }
+
+    #[test]
+    fn a_packet_of_more_than_sixteen_fragments_is_put_back_together() {
+        let packet: Vec<u8> = (0..175u8).collect();
+        let ids: Vec<usize> = (0..18).rev().collect();
+        assert_eq!(feed(&packet, 10, &ids), [packet]);
+    }
+
+    #[test]
+    fn a_left_over_entry_of_another_count_is_replaced_by_the_new_packet() {
+        let mut fragmentation = Fragmentation::new(&Config::default());
+        // An older packet of sequence 7 in three fragments, of which one came.
+        let old = FragmentHeader::new(7, 1, 3);
+        assert!(fragmentation.handle_fragment(old, b"old", None).unwrap().is_none());
+        // A new one of the same sequence in two.
+        let first = FragmentHeader::new(7, 0, 2);
+        assert!(fragmentation.handle_fragment(first, b"ab", Some(ack())).unwrap().is_none());
+        let second = FragmentHeader::new(7, 1, 2);
+        let done = fragmentation.handle_fragment(second, b"cd", None).unwrap();
+        assert_eq!(done.map(|(bytes, _)| bytes), Some(b"abcd".to_vec()));
+    }
+
+    #[test]
+    fn a_fragment_with_an_id_past_its_count_or_seen_twice_is_refused() {
+        let mut fragmentation = Fragmentation::new(&Config::default());
+        let past = FragmentHeader::new(7, 2, 2);
+        assert!(fragmentation.handle_fragment(past, b"x", None).is_err());
+        let first = FragmentHeader::new(7, 0, 2);
+        assert!(fragmentation.handle_fragment(first, b"ab", Some(ack())).unwrap().is_none());
+        assert!(fragmentation.handle_fragment(first, b"ab", Some(ack())).is_err());
     }
 }

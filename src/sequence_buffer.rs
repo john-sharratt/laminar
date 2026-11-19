@@ -36,6 +36,14 @@ impl<T: Clone + Default> SequenceBuffer<T> {
         self.sequence_num
     }
 
+    /// Returns a reference to the entry with the given sequence number.
+    pub fn get(&self, sequence_num: SequenceNumber) -> Option<&T> {
+        if self.exists(sequence_num) {
+            return Some(&self.entries[self.index(sequence_num)]);
+        }
+        None
+    }
+
     /// Returns a mutable reference to the entry with the given sequence number.
     pub fn get_mut(&mut self, sequence_num: SequenceNumber) -> Option<&mut T> {
         if self.exists(sequence_num) {
